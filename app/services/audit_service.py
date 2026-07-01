@@ -1,13 +1,18 @@
-"""Audit Engine — append-only log writes for every security-relevant event."""
+"""Audit Engine v1.0.1 — structured, append-only event log."""
 import uuid
+import time
+import logging
 from typing import Optional
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.models import AuditLog, AuditAction
 
+logger = logging.getLogger("nano_vault.audit")
+
 
 class AuditService:
+
     @staticmethod
     async def log(
         db: AsyncSession,
@@ -19,15 +24,17 @@ class AuditService:
         success: bool = True,
         request: Optional[Request] = None,
         metadata: Optional[dict] = None,
+        execution_time_ms: Optional[int] = None,
+        status_code: Optional[int] = None,
     ) -> AuditLog:
-        ip = None
-        ua = None
+        ip = ua = endpoint = None
         if request:
-            forwarded = request.headers.get("X-Forwarded-For")
-            ip = forwarded.split(",")[0].strip() if forwarded else (
+            fwd = request.headers.get("X-Forwarded-For")
+            ip = fwd.split(",")[0].strip() if fwd else (
                 request.client.host if request.client else None
             )
             ua = request.headers.get("User-Agent")
+            endpoint = str(request.url.path)
 
         log = AuditLog(
             user_id=user_id,
@@ -36,11 +43,28 @@ class AuditService:
             resource_id=str(resource_id) if resource_id else None,
             ip_address=ip,
             user_agent=ua,
+            endpoint=endpoint,
+            execution_time_ms=execution_time_ms,
+            status_code=status_code,
             success=success,
-            metadata=metadata,
+            extra_data=metadata,
         )
         db.add(log)
         await db.flush()
+
+        # Structured log line
+        logger.info(
+            "AUDIT",
+            extra={
+                "action": action.value,
+                "user_id": str(user_id) if user_id else None,
+                "resource": f"{resource_type}/{resource_id}" if resource_type else None,
+                "ip": ip,
+                "success": success,
+                "endpoint": endpoint,
+                "exec_ms": execution_time_ms,
+            },
+        )
         return log
 
     @staticmethod
@@ -58,13 +82,13 @@ class AuditService:
         if action:
             query = query.where(AuditLog.action == action)
 
-        count_q = select(func.count()).select_from(query.subquery())
-        total = (await db.execute(count_q)).scalar_one()
+        total = (await db.execute(
+            select(func.count()).select_from(query.subquery())
+        )).scalar_one()
 
         query = query.order_by(AuditLog.created_at.desc())
         query = query.offset((page - 1) * page_size).limit(page_size)
-        result = await db.execute(query)
-        return result.scalars().all(), total
+        return (await db.execute(query)).scalars().all(), total
 
 
 audit_service = AuditService()

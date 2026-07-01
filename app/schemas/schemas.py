@@ -1,17 +1,17 @@
-"""Pydantic v2 schemas for request/response validation."""
+"""Pydantic v2 schemas — NanoVault v1.0.1"""
 import uuid
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
-from app.models.models import UserRole, AuditAction
+from typing import Optional, Any
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
+from app.models.models import UserRole, AuditAction, SecretStatus
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
 
 class UserRegisterRequest(BaseModel):
-    username: str
-    email: EmailStr
-    password: str
+    username: str = Field(..., examples=["alice"])
+    email: EmailStr = Field(..., examples=["alice@example.com"])
+    password: str = Field(..., examples=["AlicePass1!"])
 
     @field_validator("username")
     @classmethod
@@ -36,15 +36,15 @@ class UserRegisterRequest(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., examples=["alice"])
+    password: str = Field(..., examples=["AlicePass1!"])
 
 
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int  # seconds
+    expires_in: int
 
 
 class RefreshTokenRequest(BaseModel):
@@ -59,7 +59,6 @@ class AccessTokenResponse(BaseModel):
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     username: str
     email: str
@@ -69,14 +68,69 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime]
 
 
+# ── Policy Engine ────────────────────────────────────────────────────────────
+
+class PolicyPermission(BaseModel):
+    """A single path-based permission rule."""
+    path: str = Field(..., examples=["aws/*"], description="Secret key path pattern. Supports * wildcard.")
+    actions: list[str] = Field(..., examples=[["read", "list"]])
+
+    @field_validator("actions")
+    @classmethod
+    def validate_actions(cls, v: list[str]) -> list[str]:
+        valid = {"create", "read", "update", "delete", "list"}
+        for a in v:
+            if a not in valid:
+                raise ValueError(f"Invalid action '{a}'. Must be one of: {valid}")
+        return v
+
+
+class PolicyCreateRequest(BaseModel):
+    name: str = Field(..., examples=["developer"], description="Unique policy name")
+    description: Optional[str] = Field(None, examples=["Developer read/write access to dev paths"])
+    permissions: list[PolicyPermission] = Field(..., examples=[[
+        {"path": "dev/*", "actions": ["create", "read", "update", "delete", "list"]},
+        {"path": "aws/*", "actions": ["read", "list"]},
+    ]])
+
+    @field_validator("name")
+    @classmethod
+    def name_valid(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not (2 <= len(v) <= 128):
+            raise ValueError("Policy name must be 2–128 characters")
+        return v
+
+
+class PolicyUpdateRequest(BaseModel):
+    description: Optional[str] = None
+    permissions: Optional[list[PolicyPermission]] = None
+
+
+class PolicyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    name: str
+    description: Optional[str]
+    permissions: list
+    is_builtin: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PolicyAssignRequest(BaseModel):
+    user_id: uuid.UUID
+    policy_id: uuid.UUID
+
+
 # ── Secrets ─────────────────────────────────────────────────────────────────
 
 class SecretCreateRequest(BaseModel):
-    key: str
-    value: str
-    description: Optional[str] = None
-    category: Optional[str] = None
-    tags: Optional[list[str]] = None
+    key: str = Field(..., examples=["aws/prod/access_key"], description="Secret key path (e.g. aws/prod/key)")
+    value: str = Field(..., examples=["AKIAIOSFODNN7EXAMPLE"])
+    description: Optional[str] = Field(None, max_length=2048, examples=["AWS production access key"])
+    category: Optional[str] = Field(None, max_length=128, examples=["cloud"])
+    tags: Optional[list[str]] = Field(None, examples=[["aws", "prod"]])
 
     @field_validator("key")
     @classmethod
@@ -91,6 +145,8 @@ class SecretCreateRequest(BaseModel):
     def value_not_empty(cls, v: str) -> str:
         if not v:
             raise ValueError("Secret value cannot be empty")
+        if len(v.encode()) > 65536:
+            raise ValueError("Secret value exceeds maximum size of 64KB")
         return v
 
     @field_validator("tags")
@@ -102,65 +158,105 @@ class SecretCreateRequest(BaseModel):
 
 
 class SecretUpdateRequest(BaseModel):
-    value: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
+    value: Optional[str] = Field(None, examples=["NEWKEY_ROTATED"])
+    description: Optional[str] = Field(None, max_length=2048)
+    category: Optional[str] = Field(None, max_length=128)
     tags: Optional[list[str]] = None
 
 
-class SecretResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    key: str
-    value: str  # decrypted value — only returned on explicit read
-    description: Optional[str]
-    category: Optional[str]
-    tags: Optional[list[str]]
-    version: int
-    created_at: datetime
-    updated_at: datetime
-
-
 class SecretMetaResponse(BaseModel):
-    """List view — does NOT include the decrypted value."""
+    """List view — value never included."""
     model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     key: str
     description: Optional[str]
     category: Optional[str]
     tags: Optional[list[str]]
     version: int
+    status: SecretStatus
+    encryption_algorithm: str
+    key_version: int
+    owner_id: uuid.UUID
+    last_accessed_at: Optional[datetime]
+    access_count: int
     created_at: datetime
     updated_at: datetime
+    deleted_at: Optional[datetime]
+
+
+class SecretResponse(SecretMetaResponse):
+    """Detail view — includes decrypted value."""
+    value: str
+
+
+class SecretSearchRequest(BaseModel):
+    query: Optional[str] = Field(None, description="Search in key name")
+    category: Optional[str] = None
+    tag: Optional[str] = None
+    owner_id: Optional[uuid.UUID] = None
+    status: Optional[SecretStatus] = None
+    created_after: Optional[datetime] = None
+    created_before: Optional[datetime] = None
+    updated_after: Optional[datetime] = None
+    updated_before: Optional[datetime] = None
+    sort_by: str = Field("created_at", pattern="^(key|category|created_at|updated_at|version)$")
+    sort_order: str = Field("desc", pattern="^(asc|desc)$")
+    page: int = Field(1, ge=1)
+    page_size: int = Field(50, ge=1, le=200)
 
 
 # ── Audit ────────────────────────────────────────────────────────────────────
 
 class AuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     user_id: Optional[uuid.UUID]
     action: AuditAction
     resource_type: Optional[str]
     resource_id: Optional[str]
     ip_address: Optional[str]
+    endpoint: Optional[str]
+    execution_time_ms: Optional[int]
+    status_code: Optional[int]
     success: bool
     extra_data: Optional[dict]
     created_at: datetime
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
+
+class ComponentHealth(BaseModel):
+    status: str  # "healthy" | "degraded" | "unhealthy"
+    message: Optional[str] = None
+    latency_ms: Optional[float] = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    uptime_seconds: float
+    components: dict[str, ComponentHealth]
+
+
+# ── Metrics ──────────────────────────────────────────────────────────────────
+
+class MetricsResponse(BaseModel):
+    total_users: int
+    active_users: int
+    total_secrets: int
+    active_secrets: int
+    deleted_secrets: int
+    total_audit_events: int
+    secret_reads: int
+    secret_writes: int
+    secret_updates: int
+    secret_deletes: int
+    successful_logins: int
+    failed_logins: int
+    total_policies: int
 
 
 # ── Generic ──────────────────────────────────────────────────────────────────
 
 class MessageResponse(BaseModel):
     message: str
-
-
-class PaginatedResponse(BaseModel):
-    items: list
-    total: int
-    page: int
-    page_size: int
-    pages: int
