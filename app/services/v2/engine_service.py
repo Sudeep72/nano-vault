@@ -19,8 +19,8 @@ _DEFAULT_MOUNTS = [
     {"name": "dynamic",    "engine_type": "dynamic",    "mount_path": "dynamic/",  "description": "Dynamic Secrets Engine — on-demand credential generation"},
     {"name": "cubbyhole",  "engine_type": "cubbyhole",  "mount_path": "cubbyhole/","description": "Cubbyhole Engine — private per-token scratch space"},
     # Reserved for future engines
-    {"name": "transit",    "engine_type": "transit",    "mount_path": "transit/",  "description": "Transit Engine — encryption-as-a-service (reserved, v3)", "status": EngineStatus.DISABLED},
-    {"name": "pki",        "engine_type": "pki",        "mount_path": "pki/",      "description": "PKI Engine — certificate authority (reserved, v3)",         "status": EngineStatus.DISABLED},
+    {"name": "transit",    "engine_type": "transit",    "mount_path": "transit/",  "description": "Transit Engine — encryption-as-a-service"},
+    {"name": "pki",        "engine_type": "pki",        "mount_path": "pki/",      "description": "PKI Engine — certificate authority, issuance, revocation, CRL"},
     {"name": "ssh",        "engine_type": "ssh",        "mount_path": "ssh/",      "description": "SSH Engine — dynamic SSH credentials (reserved, v3)",       "status": EngineStatus.DISABLED},
 ]
 
@@ -113,6 +113,18 @@ class EngineService:
             raise HTTPException(status_code=400, detail=f"Engine '{name}' is disabled — enable it first")
         mount.updated_at = _now()
         await db.flush()
+        return mount
+
+    @staticmethod
+    async def ensure_enabled(db: AsyncSession, name: str) -> EngineMount:
+        mount = await EngineService.get(db, name)
+
+        if mount.status == EngineStatus.DISABLED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Engine '{name}' is disabled — enable it first",
+            )
+
         return mount
 
     @staticmethod

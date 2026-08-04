@@ -1,0 +1,34 @@
+stages: [auth, deploy, cleanup]
+
+variables:
+  NANOVAULT_ADDR: "https://nanovault.internal:8000"
+
+authenticate:
+  stage: auth
+  script:
+    - |
+      TOKEN=$(curl -s -X POST "$NANOVAULT_ADDR/api/v1/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"$NANOVAULT_CI_USER\",\"password\":\"$NANOVAULT_CI_PASS\"}" \
+        | jq -r '.data.access_token')
+      echo "NANOVAULT_TOKEN=$TOKEN" >> auth.env
+  artifacts:
+    reports: {dotenv: auth.env}
+
+deploy:
+  stage: deploy
+  needs: [authenticate]
+  script:
+    - |
+      curl -s -X POST "$NANOVAULT_ADDR/api/v2/tokens/create" \
+        -H "Authorization: Bearer $NANOVAULT_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"token_type":"batch","ttl_seconds":600}'
+    - echo "Deploy using pipeline-scoped batch token"
+
+cleanup:
+  stage: cleanup
+  needs: [authenticate]
+  when: always
+  script:
+    - echo "Revoke any leases/tokens created during this pipeline"

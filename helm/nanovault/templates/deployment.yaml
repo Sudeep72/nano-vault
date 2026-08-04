@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {app: {{ .Release.Name }}-api}
+  template:
+    metadata:
+      labels: {app: {{ .Release.Name }}-api}
+    spec:
+      containers:
+      - name: api
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports: [{containerPort: 8000}]
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        readinessProbe:
+          httpGet: {path: /api/v3/health/ready, port: 8000}
+        livenessProbe:
+          httpGet: {path: /api/v3/health/live, port: 8000}

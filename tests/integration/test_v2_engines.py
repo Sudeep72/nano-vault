@@ -44,7 +44,7 @@ async def test_get_engine_detail(client: AsyncClient, auth_headers: dict):
 
 
 async def test_disabled_engine_shows_correctly(client: AsyncClient, auth_headers: dict):
-    resp = await client.get("/api/v2/engines/transit", headers=auth_headers)
+    resp = await client.get("/api/v2/engines/ssh", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["status"] == "disabled"

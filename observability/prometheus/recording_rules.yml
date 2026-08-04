@@ -1,0 +1,18 @@
+groups:
+  - name: nanovault_recording_rules
+    interval: 30s
+    rules:
+      - record: nanovault:login_failure_rate_5m
+        expr: rate(nanovault_auth_login_total{result="failed"}[5m])
+
+      - record: nanovault:secret_ops_rate_5m
+        expr: rate(nanovault_secrets_read_total[5m]) + rate(nanovault_secrets_write_total[5m])
+
+      - record: nanovault:transit_crypto_ops_rate_5m
+        expr: rate(nanovault_transit_encrypt_total[5m]) + rate(nanovault_transit_decrypt_total[5m])
+
+      - record: nanovault:http_p99_latency_ms
+        expr: histogram_quantile(0.99, nanovault_http_request_duration_ms_bucket)
+
+      - record: nanovault:scheduler_failure_ratio
+        expr: rate(nanovault_scheduler_job_runs_total{status="failed"}[15m]) / rate(nanovault_scheduler_job_runs_total[15m])

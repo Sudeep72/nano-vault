@@ -1,0 +1,7 @@
+version: 1
+
+rules:
+  - path: "aws/*"
+    actions:
+      - read
+      - create

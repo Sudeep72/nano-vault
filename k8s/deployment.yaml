@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nanovault-api
+  namespace: nanovault
+  labels: {app: nanovault-api}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: nanovault-api}
+  template:
+    metadata:
+      labels: {app: nanovault-api}
+      annotations:
+        # Vault Agent sidecar injection annotations (simulated pattern, HashiCorp-style)
+        vault.nanovault.io/agent-inject: "true"
+        vault.nanovault.io/role: "nanovault-api"
+    spec:
+      serviceAccountName: nanovault-api
+      containers:
+      - name: api
+        image: nanovault:3.0.0
+        ports: [{containerPort: 8000}]
+        envFrom:
+        - secretRef: {name: nanovault-secrets}
+        env:
+        - {name: APP_ENV, value: production}
+        readinessProbe:
+          httpGet: {path: /api/v3/health/ready, port: 8000}
+          initialDelaySeconds: 10
+        livenessProbe:
+          httpGet: {path: /api/v3/health/live, port: 8000}
+          initialDelaySeconds: 15
+        resources:
+          requests: {cpu: "250m", memory: "256Mi"}
+          limits: {cpu: "1", memory: "512Mi"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nanovault-api
+  namespace: nanovault
+spec:
+  selector: {app: nanovault-api}
+  ports: [{port: 8000, targetPort: 8000}]
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nanovault-api
+  namespace: nanovault
+  annotations:
+    # Workload Identity binding pattern (GCP/AWS IRSA-style)
+    nanovault.io/workload-identity: "nanovault-api@project.iam.gserviceaccount.com"

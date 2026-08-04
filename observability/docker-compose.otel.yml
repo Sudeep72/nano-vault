@@ -1,0 +1,27 @@
+# OpenTelemetry stack — Jaeger for trace visualization.
+# Usage: docker-compose -f docker-compose.yml -f observability/docker-compose.otel.yml up
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  # Alternative: Grafana Tempo (uncomment to use instead of Jaeger)
+  # tempo:
+  #   image: grafana/tempo:2.4.0
+  #   command: ["-config.file=/etc/tempo.yaml"]
+  #   volumes:
+  #     - ./observability/tempo.yaml:/etc/tempo.yaml
+  #   ports:
+  #     - "3200:3200"
+  #     - "4317:4317"
+
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"
+    depends_on:
+      - jaeger

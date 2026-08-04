@@ -1,0 +1,71 @@
+{
+  "title": "NanoVault \u2014 Transit & PKI Detail",
+  "uid": "nanovault-crypto",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Transit Keys Total",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "nanovault_transit_keys_total"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Sign Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_transit_sign_total[5m])"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Certificates Issued by Type",
+      "type": "piechart",
+      "targets": [
+        {
+          "expr": "sum by (cert_type) (nanovault_pki_certs_issued_total)"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Certificate Revocations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_pki_certs_revoked_total[1h])"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    }
+  ]
+}

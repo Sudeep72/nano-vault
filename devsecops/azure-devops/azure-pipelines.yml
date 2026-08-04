@@ -1,0 +1,30 @@
+trigger: [main]
+
+variables:
+  NANOVAULT_ADDR: 'https://nanovault.internal:8000'
+
+stages:
+- stage: Auth
+  jobs:
+  - job: GetToken
+    steps:
+    - script: |
+        TOKEN=$(curl -s -X POST "$(NANOVAULT_ADDR)/api/v1/auth/login" \
+          -H "Content-Type: application/json" \
+          -d "{\"username\":\"$(NANOVAULT_CI_USER)\",\"password\":\"$(NANOVAULT_CI_PASS)\"}" \
+          | jq -r '.data.access_token')
+        echo "##vso[task.setvariable variable=nanovaultToken;isOutput=true]$TOKEN"
+      name: authStep
+
+- stage: Deploy
+  dependsOn: Auth
+  jobs:
+  - job: DeployWithDynamicSecrets
+    variables:
+      token: $[ stageDependencies.Auth.GetToken.outputs['authStep.nanovaultToken'] ]
+    steps:
+    - script: |
+        curl -s -X POST "$(NANOVAULT_ADDR)/api/v2/tokens/create" \
+          -H "Authorization: Bearer $(token)" \
+          -H "Content-Type: application/json" \
+          -d '{"token_type":"batch","ttl_seconds":600}'

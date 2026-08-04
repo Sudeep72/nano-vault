@@ -1,0 +1,20 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: nanovault-pod-validator
+webhooks:
+  - name: validate.nanovault.io
+    clientConfig:
+      service:
+        name: nanovault-admission-webhook
+        namespace: nanovault
+        path: /validate
+      caBundle: ""   # populate with the webhook service's CA cert at deploy time
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Ignore

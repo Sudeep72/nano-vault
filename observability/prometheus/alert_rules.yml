@@ -1,0 +1,45 @@
+groups:
+  - name: nanovault_alerts
+    rules:
+      - alert: NanoVaultHighFailedLogins
+        expr: rate(nanovault_auth_login_total{result="failed"}[5m]) > 5
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "High rate of failed logins"
+          description: "More than 5 failed logins/min for 2 minutes — possible brute force"
+
+      - alert: NanoVaultCertificateExpiringSoon
+        expr: nanovault_pki_active_certs > 0 and predict_linear(nanovault_pki_active_certs[1h], 86400*30) < 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "Certificates expiring within 30 days"
+
+      - alert: NanoVaultVaultSealed
+        expr: nanovault_vault_sealed == 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "NanoVault is sealed — no secret operations possible"
+
+      - alert: NanoVaultEngineUnhealthy
+        expr: nanovault_engines_mounted < 3
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Fewer than 3 core engines mounted"
+
+      - alert: NanoVaultHighAPILatency
+        expr: histogram_quantile(0.95, nanovault_http_request_duration_ms_bucket) > 1000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "P95 API latency above 1s"
+
+      - alert: NanoVaultSchedulerJobFailures
+        expr: rate(nanovault_scheduler_job_runs_total{status="failed"}[15m]) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Scheduler jobs are failing"

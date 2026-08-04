@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nanovault-postgres
+  namespace: nanovault
+spec:
+  serviceName: nanovault-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app: nanovault-postgres}
+  template:
+    metadata:
+      labels: {app: nanovault-postgres}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - {name: POSTGRES_USER, value: nano_vault_user}
+        - {name: POSTGRES_PASSWORD, value: nano_vault_pass}
+        - {name: POSTGRES_DB, value: nano_vault_db}
+        ports: [{containerPort: 5432}]
+        volumeMounts:
+        - {name: pgdata, mountPath: /var/lib/postgresql/data}
+        readinessProbe:
+          exec: {command: ["pg_isready", "-U", "nano_vault_user"]}
+          initialDelaySeconds: 5
+  volumeClaimTemplates:
+  - metadata: {name: pgdata}
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources: {requests: {storage: 5Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nanovault-postgres
+  namespace: nanovault
+spec:
+  selector: {app: nanovault-postgres}
+  ports: [{port: 5432, targetPort: 5432}]

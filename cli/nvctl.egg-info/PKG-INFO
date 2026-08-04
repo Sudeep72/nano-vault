@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: nvctl
+Version: 3.0.0
+Summary: NanoVault Enterprise CLI
+Requires-Python: >=3.9
+Requires-Dist: click>=8.1.7
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: rich>=13.7.1
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

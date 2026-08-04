@@ -1,0 +1,28 @@
+replicaCount: 2
+
+image:
+  repository: nanovault
+  tag: "3.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  host: nanovault.example.com
+
+postgres:
+  enabled: true
+  storage: 5Gi
+
+resources:
+  requests: {cpu: 250m, memory: 256Mi}
+  limits: {cpu: "1", memory: 512Mi}
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

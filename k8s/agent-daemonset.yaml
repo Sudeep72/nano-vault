@@ -1,0 +1,19 @@
+# Vault Agent DaemonSet — one agent per node for local secret caching/rendering.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: nanovault-agent, namespace: nanovault}
+spec:
+  selector: {matchLabels: {app: nanovault-agent}}
+  template:
+    metadata: {labels: {app: nanovault-agent}}
+    spec:
+      serviceAccountName: nanovault-api
+      containers:
+        - name: agent
+          image: nanovault-agent:3.0.0
+          env:
+            - {name: NANOVAULT_ADDR, value: "http://nanovault-api:8000"}
+          volumeMounts:
+            - {name: rendered-secrets, mountPath: /var/run/nanovault-agent}
+      volumes:
+        - {name: rendered-secrets, emptyDir: {medium: Memory}}

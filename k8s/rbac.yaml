@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: nanovault-api, namespace: nanovault}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: nanovault-api-role, namespace: nanovault}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["secrets-store.csi.x-k8s.io"]
+    resources: ["secretproviderclasses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: nanovault-api-binding, namespace: nanovault}
+subjects:
+  - {kind: ServiceAccount, name: nanovault-api, namespace: nanovault}
+roleRef: {kind: Role, name: nanovault-api-role, apiGroup: rbac.authorization.k8s.io}

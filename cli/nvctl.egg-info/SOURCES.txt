@@ -1,0 +1,11 @@
+setup.py
+nvctl/__init__.py
+nvctl/client.py
+nvctl/config.py
+nvctl/main.py
+nvctl.egg-info/PKG-INFO
+nvctl.egg-info/SOURCES.txt
+nvctl.egg-info/dependency_links.txt
+nvctl.egg-info/entry_points.txt
+nvctl.egg-info/requires.txt
+nvctl.egg-info/top_level.txt

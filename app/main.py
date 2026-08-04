@@ -27,6 +27,9 @@ from app.api.v2.endpoints import kv, dynamic, tokens, mfa, wrap, cubbyhole, orgs
 # v2 routers — enterprise hardening
 from app.api.v2.endpoints import engines, namespaces, policy_inheritance, metadata
 
+# v3 routers — Advanced Vault Platform (Parts 1, 2, 3)
+from app.api.v3.endpoints import transit, pki, seal, identity, policy_as_code, ops, completion, final_completion, pass2_completion
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 
 limiter = Limiter(
@@ -54,15 +57,40 @@ async def lifespan(app: FastAPI):
         from app.services.v2.engine_service import engine_service
         await policy_service.seed_builtins(db)
         await engine_service.seed_defaults(db)
+        # Trigger v3 engine registration in runtime registry
+        from app.engines.transit.engine import transit_engine  # noqa
+        from app.engines.pki.engine import pki_engine  # noqa
         await db.commit()
+
+    # Register storage backends (real abstraction, PostgreSQL/SQLite active by default)
+    from app.storage.base import storage_manager, PostgreSQLBackend, SQLiteBackend, LocalFileBackend
+    if settings.DATABASE_URL.startswith("sqlite"):
+        storage_manager.register("sqlite-primary", SQLiteBackend(_engine))
+    else:
+        storage_manager.register("postgresql-primary", PostgreSQLBackend(_engine))
+    storage_manager.register("local-file-backup", LocalFileBackend())
+
+    # Start real APScheduler background jobs (lease cleanup, rotation, token cleanup, engine health)
+    from app.services.v3.apscheduler_service import start_scheduler, stop_scheduler
+    start_scheduler()
+
+    # OpenTelemetry (no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set)
+    from app.services.v3.otel_service import init_tracing, instrument_fastapi
+    init_tracing("nanovault")
+    instrument_fastapi(app)
+
+    # Redis cache (no-op unless REDIS_URL is set — falls back silently)
+    from app.services.v3.cache_service import init_cache
+    init_cache()
 
     logging.getLogger("nano_vault").info("NanoVault %s started", settings.APP_VERSION)
     yield
+    stop_scheduler()
     await _engine.dispose()
 
 
 app = FastAPI(
-    title="NanoVault Enterprise",
+    title="NanoVault v3.0 — Advanced Vault Platform",
     description=(
         "## 🔐 NanoVault v2.0 — Enterprise Vault Platform\n\n"
         "**v1 API** — Auth, KV Secrets, Policies, Audit (`/api/v1/`)\n\n"
@@ -73,7 +101,7 @@ app = FastAPI(
         "**Auth:** Login at `/api/v1/auth/login` → click **Authorize** → paste Bearer token.\n\n"
         "**Namespace:** Pass `X-Vault-Namespace: <path>` header to operate in a specific namespace."
     ),
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -107,6 +135,11 @@ app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_SI
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(StructuredLoggingMiddleware)
+
+from app.middleware.structured_logging import CorrelationMiddleware, configure_json_logging
+if settings.APP_ENV == "production":
+    configure_json_logging()
+app.add_middleware(CorrelationMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
@@ -140,6 +173,18 @@ app.include_router(engines.router,             prefix=v2)
 app.include_router(namespaces.router,          prefix=v2)
 app.include_router(policy_inheritance.router,  prefix=v2)
 app.include_router(metadata.router,            prefix=v2)
+
+# ── v3 routes — Advanced Vault Platform ──────────────────────────────────────
+v3 = "/api/v3"
+app.include_router(transit.router,        prefix=v3)
+app.include_router(pki.router,            prefix=v3)
+app.include_router(seal.router,           prefix=v3)
+app.include_router(identity.router,       prefix=v3)
+app.include_router(policy_as_code.router, prefix=v3)
+app.include_router(ops.router,            prefix=v3)
+app.include_router(completion.router,     prefix=v3)
+app.include_router(final_completion.router, prefix=v3)
+app.include_router(pass2_completion.router, prefix=v3)
 
 
 @app.get("/docs", include_in_schema=False)
@@ -205,7 +250,7 @@ async def root():
 
 @app.get("/health", include_in_schema=False)
 async def health_check():
-    return JSONResponse({"status": "healthy", "version": "2.0.0", "service": "NanoVault Enterprise"})
+    return JSONResponse({"status": "healthy", "version": "3.0.0", "service": "NanoVault Enterprise"})
 
 
 @app.get("/routes", include_in_schema=False)

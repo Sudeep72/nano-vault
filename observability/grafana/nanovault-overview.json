@@ -1,0 +1,177 @@
+{
+  "title": "NanoVault \u2014 Platform Overview",
+  "uid": "nanovault-overview",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Login Attempts (by result)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_auth_login_total[5m])"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Vault Tokens",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "nanovault_auth_active_tokens"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Total Secrets",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "nanovault_secrets_total"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      }
+    },
+    {
+      "id": 4,
+      "title": "Secret Read/Write Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_secrets_read_total[5m])",
+          "legendFormat": "reads"
+        },
+        {
+          "expr": "rate(nanovault_secrets_write_total[5m])",
+          "legendFormat": "writes"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 5,
+      "title": "Transit Encrypt/Decrypt Ops",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_transit_encrypt_total[5m])",
+          "legendFormat": "encrypt"
+        },
+        {
+          "expr": "rate(nanovault_transit_decrypt_total[5m])",
+          "legendFormat": "decrypt"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "id": 6,
+      "title": "PKI Certificates Issued",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_pki_certs_issued_total[1h])"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 7,
+      "title": "Active PKI Certificates",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "nanovault_pki_active_certs"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 8,
+      "title": "Mounted Engines",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "nanovault_engines_mounted"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 16
+      }
+    },
+    {
+      "id": 9,
+      "title": "HTTP Request Duration (p95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, nanovault_http_request_duration_ms_bucket)"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 10,
+      "title": "Scheduler Job Runs",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(nanovault_scheduler_job_runs_total[5m])"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    }
+  ]
+}

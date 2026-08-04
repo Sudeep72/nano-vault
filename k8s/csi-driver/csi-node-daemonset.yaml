@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: csi-nanovault-node, namespace: nanovault}
+spec:
+  selector: {matchLabels: {app: csi-nanovault-node}}
+  template:
+    metadata: {labels: {app: csi-nanovault-node}}
+    spec:
+      containers:
+        - name: csi-driver
+          image: nanovault-csi-driver:3.0.0
+          securityContext: {privileged: true}
+          volumeMounts:
+            - {name: plugin-dir, mountPath: /csi}
+            - {name: pods-mount-dir, mountPath: /var/lib/kubelet/pods, mountPropagation: Bidirectional}
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.10.0
+          args: ["--csi-address=/csi/csi.sock", "--kubelet-registration-path=/var/lib/kubelet/plugins/csi.nanovault.io/csi.sock"]
+          volumeMounts:
+            - {name: plugin-dir, mountPath: /csi}
+            - {name: registration-dir, mountPath: /registration}
+      volumes:
+        - {name: plugin-dir, hostPath: {path: /var/lib/kubelet/plugins/csi.nanovault.io, type: DirectoryOrCreate}}
+        - {name: pods-mount-dir, hostPath: {path: /var/lib/kubelet/pods, type: Directory}}
+        - {name: registration-dir, hostPath: {path: /var/lib/kubelet/plugins_registry, type: Directory}}

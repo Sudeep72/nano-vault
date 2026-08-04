@@ -10,7 +10,7 @@ os.environ["JWT_SECRET_KEY"] = "test-jwt-key-min-32-characters-long!!!"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["ENCRYPTION_KEY"] = base64.b64encode(b"0" * 32).decode()
 os.environ["ALLOWED_ORIGINS"] = "http://localhost:3000"
-os.environ["APP_VERSION"] = "2.0.0"
+os.environ["APP_VERSION"] = "3.0.0"
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
@@ -55,6 +55,11 @@ async def _create_schema():
         await policy_service.seed_builtins(db)
         await engine_service.seed_defaults(db)
         await db.commit()
+
+    # Register storage backends for tests (real lifespan does this at app startup)
+    from app.storage.base import storage_manager, SQLiteBackend, LocalFileBackend
+    storage_manager.register("sqlite-primary", SQLiteBackend(_engine))
+    storage_manager.register("local-file-backup", LocalFileBackend("/tmp/nanovault_test_storage"))
     yield
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -72,6 +77,8 @@ async def client(_create_schema):
                 raise
 
     app.dependency_overrides[get_db] = _override
+
+
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
@@ -87,6 +94,10 @@ async def client(_create_schema):
                     CubbyholeEntry, MFAConfig, Organization, Project,
                     Team, Namespace, ServiceAccount, team_member_table,
                     EngineMount, PolicyInheritance,
+                    TransitKeyVersion, TransitKey,
+                    Certificate, CertificateAuthority,
+                    ShamirShare, VaultSealState, AutoUnsealProvider,
+                    IdentityProvider, PolicyFileVersion, PolicyFile,
                 )
                 for table in [
                     AuditLog.__table__, RotationHistory.__table__,
@@ -98,7 +109,13 @@ async def client(_create_schema):
                     user_policy_table, Team.__table__,
                     Project.__table__, Namespace.__table__,
                     PolicyInheritance.__table__,
-                    ServiceAccount.__table__, User.__table__,
+                    ServiceAccount.__table__,
+                    TransitKeyVersion.__table__, TransitKey.__table__,
+                    Certificate.__table__, CertificateAuthority.__table__,
+                    ShamirShare.__table__, VaultSealState.__table__,
+                    AutoUnsealProvider.__table__, IdentityProvider.__table__,
+                    PolicyFileVersion.__table__, PolicyFile.__table__,
+                    User.__table__,
                     Organization.__table__, EngineMount.__table__,
                 ]:
                     try:

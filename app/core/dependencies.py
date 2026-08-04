@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.core.security import decode_token
 from app.models.models import User, UserRole
 from app.services.auth_service import auth_service
+from app.services.v3.shamir_service import shamir_service
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
@@ -35,3 +36,8 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin privileges required",
         )
     return current_user
+
+async def require_unsealed(
+    db: AsyncSession = Depends(get_db),
+):
+    await shamir_service.require_unsealed(db)

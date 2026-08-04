@@ -558,3 +558,226 @@ class PolicyInheritance(Base):
     __table_args__ = (
         Index("ix_policy_inheritance_pair", "parent_policy_id", "child_policy_id", unique=True),
     )
+
+
+# ═══════════════════════════════════════════════════════
+# NanoVault v3.0 Models
+# ═══════════════════════════════════════════════════════
+
+class TransitKeyType(str, PyEnum):
+    AES_256_GCM = "aes-256-gcm"
+    CHACHA20_POLY1305 = "chacha20-poly1305"
+    RSA_4096 = "rsa-4096"
+    ED25519 = "ed25519"
+
+class TransitKeyStatus(str, PyEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DISABLED = "disabled"
+    DESTROYED = "destroyed"
+
+class CertificateType(str, PyEnum):
+    ROOT_CA = "root_ca"
+    INTERMEDIATE_CA = "intermediate_ca"
+    SERVER = "server"
+    CLIENT = "client"
+    MTLS = "mtls"
+    INTERNAL = "internal"
+
+class CertificateStatus(str, PyEnum):
+    VALID = "valid"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+    PENDING = "pending"
+
+class SealStatus(str, PyEnum):
+    SEALED = "sealed"
+    UNSEALED = "unsealed"
+
+class UnsealProviderType(str, PyEnum):
+    AWS_KMS = "aws_kms"
+    AZURE_KEY_VAULT = "azure_key_vault"
+    GCP_KMS = "gcp_kms"
+    LOCAL_HSM = "local_hsm"
+    MANUAL = "manual"
+
+class IdentityProviderType(str, PyEnum):
+    OIDC = "oidc"
+    LDAP = "ldap"
+    ACTIVE_DIRECTORY = "active_directory"
+    JWT = "jwt"
+    SAML = "saml"
+
+class PolicyFileFormat(str, PyEnum):
+    YAML = "yaml"
+    JSON = "json"
+    HCL = "hcl"
+
+
+class TransitKey(Base):
+    __tablename__ = "transit_keys"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    key_type: Mapped[TransitKeyType] = mapped_column(Enum(TransitKeyType), nullable=False)
+    status: Mapped[TransitKeyStatus] = mapped_column(Enum(TransitKeyStatus), default=TransitKeyStatus.ACTIVE, nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    min_decryption_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    exportable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deletion_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    labels: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rotation_policy_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_rotation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    versions: Mapped[list["TransitKeyVersion"]] = relationship(back_populates="key", cascade="all, delete-orphan")
+
+
+class TransitKeyVersion(Base):
+    __tablename__ = "transit_key_versions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("transit_keys.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    encrypted_key_material: Mapped[str] = mapped_column(Text, nullable=False)
+    public_key_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    algorithm: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    destroyed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    key: Mapped["TransitKey"] = relationship(back_populates="versions")
+    __table_args__ = (Index("ix_transit_key_versions_key_ver", "key_id", "version_number", unique=True),)
+
+
+class CertificateAuthority(Base):
+    __tablename__ = "certificate_authorities"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    ca_type: Mapped[CertificateType] = mapped_column(Enum(CertificateType), nullable=False)
+    parent_ca_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("certificate_authorities.id", ondelete="SET NULL"), nullable=True)
+    subject_dn: Mapped[str] = mapped_column(Text, nullable=False)
+    certificate_pem: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_private_key: Mapped[str] = mapped_column(Text, nullable=False)
+    serial_number: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    not_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    key_algorithm: Mapped[str] = mapped_column(String(64), nullable=False, default="RSA-4096")
+    status: Mapped[CertificateStatus] = mapped_column(Enum(CertificateStatus), default=CertificateStatus.VALID, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    certificates: Mapped[list["Certificate"]] = relationship(back_populates="ca", cascade="all, delete-orphan")
+    children: Mapped[list["CertificateAuthority"]] = relationship()
+
+
+class Certificate(Base):
+    __tablename__ = "certificates"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ca_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("certificate_authorities.id", ondelete="CASCADE"), nullable=False, index=True)
+    cert_type: Mapped[CertificateType] = mapped_column(Enum(CertificateType), nullable=False)
+    common_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    subject_dn: Mapped[str] = mapped_column(Text, nullable=False)
+    san_dns: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    san_ips: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    certificate_pem: Mapped[str] = mapped_column(Text, nullable=False)
+    certificate_chain_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    csr_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    serial_number: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    not_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[CertificateStatus] = mapped_column(Enum(CertificateStatus), default=CertificateStatus.VALID, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revocation_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    renewed_from_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("certificates.id", ondelete="SET NULL"), nullable=True)
+    issued_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    ca: Mapped["CertificateAuthority"] = relationship(back_populates="certificates")
+
+
+class VaultSealState(Base):
+    __tablename__ = "vault_seal_state"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status: Mapped[SealStatus] = mapped_column(Enum(SealStatus), default=SealStatus.SEALED, nullable=False)
+    total_shares: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    shares_provided: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    encrypted_master_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unseal_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    unsealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    initialized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class ShamirShare(Base):
+    __tablename__ = "shamir_shares"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    share_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    share_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    distributed_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AutoUnsealProvider(Base):
+    __tablename__ = "auto_unseal_providers"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    provider_type: Mapped[UnsealProviderType] = mapped_column(Enum(UnsealProviderType), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_healthy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_health_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class IdentityProvider(Base):
+    __tablename__ = "identity_providers"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    provider_type: Mapped[IdentityProviderType] = mapped_column(Enum(IdentityProviderType), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    group_mappings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    role_mappings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    namespace_mappings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class PolicyFile(Base):
+    __tablename__ = "policy_files"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    format: Mapped[PolicyFileFormat] = mapped_column(Enum(PolicyFileFormat), nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    versions: Mapped[list["PolicyFileVersion"]] = relationship(back_populates="policy_file", cascade="all, delete-orphan")
+
+
+class PolicyFileVersion(Base):
+    __tablename__ = "policy_file_versions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    policy_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed_permissions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    is_valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    validation_errors: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    policy_file: Mapped["PolicyFile"] = relationship(back_populates="versions")
+    __table_args__ = (Index("ix_policy_file_versions_file_ver", "policy_file_id", "version_number", unique=True),)

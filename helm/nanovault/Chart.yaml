@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nanovault
+description: NanoVault Enterprise Vault Platform Helm chart
+type: application
+version: 3.0.0
+appVersion: "3.0.0"

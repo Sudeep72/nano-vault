@@ -1,0 +1,38 @@
+pipeline {
+    agent any
+    environment {
+        NANOVAULT_ADDR = 'https://nanovault.internal:8000'
+    }
+    stages {
+        stage('Authenticate to NanoVault') {
+            steps {
+                script {
+                    def resp = sh(script: """
+                        curl -s -X POST "$NANOVAULT_ADDR/api/v1/auth/login" \
+                          -H "Content-Type: application/json" \
+                          -d '{"username":"$NANOVAULT_CI_USER","password":"$NANOVAULT_CI_PASS}'
+                    """, returnStdout: true)
+                    env.NANOVAULT_TOKEN = sh(script: "echo '${resp}' | jq -r '.data.access_token'", returnStdout: true).trim()
+                }
+            }
+        }
+        stage('Generate Dynamic Credentials') {
+            steps {
+                sh '''
+                    curl -s -X POST "$NANOVAULT_ADDR/api/v2/dynamic/generate" \
+                      -H "Authorization: Bearer $NANOVAULT_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      -d '{"credential_type":"cloud_aws","ttl_seconds":900}'
+                '''
+            }
+        }
+        stage('Deploy') {
+            steps { echo 'Deploy using short-lived AWS credentials from NanoVault' }
+        }
+    }
+    post {
+        always {
+            echo 'Revoke leases and tokens issued during this build'
+        }
+    }
+}

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'nanovault'
+    metrics_path: '/api/v3/metrics'
+    static_configs:
+      - targets: ['nanovault-api:8000']
+        labels:
+          service: 'nanovault'
+          environment: 'production'
