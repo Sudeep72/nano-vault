@@ -30,6 +30,9 @@ from app.api.v2.endpoints import engines, namespaces, policy_inheritance, metada
 # v3 routers — Advanced Vault Platform (Parts 1, 2, 3)
 from app.api.v3.endpoints import transit, pki, seal, identity, policy_as_code, ops, completion, final_completion, pass2_completion
 
+# v4 routers — Platform Experience & Engineering Excellence
+from app.api.v4.endpoints import architecture, benchmarks, replay, threat_model, demo, dev_experience, playground
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 
 limiter = Limiter(
@@ -101,7 +104,7 @@ app = FastAPI(
         "**Auth:** Login at `/api/v1/auth/login` → click **Authorize** → paste Bearer token.\n\n"
         "**Namespace:** Pass `X-Vault-Namespace: <path>` header to operate in a specific namespace."
     ),
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -186,6 +189,16 @@ app.include_router(completion.router,     prefix=v3)
 app.include_router(final_completion.router, prefix=v3)
 app.include_router(pass2_completion.router, prefix=v3)
 
+# ── v4 routes — Platform Experience & Engineering Excellence ────────────────
+v4 = "/api/v4"
+app.include_router(architecture.router,    prefix=v4)
+app.include_router(benchmarks.router,      prefix=v4)
+app.include_router(replay.router,          prefix=v4)
+app.include_router(threat_model.router,    prefix=v4)
+app.include_router(demo.router,            prefix=v4)
+app.include_router(dev_experience.router,  prefix=v4)
+app.include_router(playground.router,      prefix=v4)
+
 
 @app.get("/docs", include_in_schema=False)
 async def swagger_ui():
@@ -250,7 +263,7 @@ async def root():
 
 @app.get("/health", include_in_schema=False)
 async def health_check():
-    return JSONResponse({"status": "healthy", "version": "3.0.0", "service": "NanoVault Enterprise"})
+    return JSONResponse({"status": "healthy", "version": "4.0.0", "service": "NanoVault Enterprise"})
 
 
 @app.get("/routes", include_in_schema=False)

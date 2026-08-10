@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "NanoVault"
-    APP_VERSION: str = "3.0.0"
+    APP_VERSION: str = "4.0.0"
     APP_ENV: str = "development"
     DEBUG: bool = False
     SECRET_KEY: str = ""

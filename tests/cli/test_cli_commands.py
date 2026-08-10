@@ -5,9 +5,6 @@ from pathlib import Path
 from click.testing import CliRunner
 import pytest
 
-import sys
-sys.path.insert(0, "/home/claude/nano_vault/cli")
-
 from nvctl.main import cli
 from nvctl import config as cfg_module
 
