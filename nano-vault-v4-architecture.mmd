@@ -1,0 +1,41 @@
+graph LR
+    auth["Authentication"]
+    kv_secrets["KV Secrets Engine"]
+    transit_engine["Transit Secrets Engine"]
+    pki_engine["PKI Secrets Engine"]
+    dynamic_engine["Dynamic Secrets Engine"]
+    seal_engine["Shamir Seal / Auto-Unseal"]
+    identity["Identity Providers"]
+    policy_engine["Policy Engine"]
+    namespaces["Namespace Engine"]
+    audit["Audit Engine"]
+    scheduler["Scheduler / APScheduler"]
+    storage["Storage Backend"]
+    encryption_core["Encryption Core"]
+    database["PostgreSQL 16"]
+    observability["Observability Stack"]
+    auth -->|reads/writes| database
+    auth -->|password hash| encryption_core
+    kv_secrets -->|encrypt at rest| encryption_core
+    kv_secrets -->|emits events| audit
+    kv_secrets -->|reads/writes| database
+    kv_secrets -->|access check| policy_engine
+    transit_engine -->|key material stored| encryption_core
+    transit_engine -->|emits events| audit
+    transit_engine -->|key metadata| database
+    pki_engine -->|emits events| audit
+    pki_engine -->|cert storage| database
+    dynamic_engine -->|emits events| audit
+    dynamic_engine -->|lease storage| database
+    seal_engine -->|master key wrap| encryption_core
+    seal_engine -->|seal state| database
+    identity -->|maps to roles| auth
+    identity -->|provider config| database
+    policy_engine -->|policy storage| database
+    policy_engine -->|inheritance| namespaces
+    namespaces -->|org/ns hierarchy| database
+    audit -->|append-only writes| database
+    scheduler -->|rotation jobs| kv_secrets
+    scheduler -->|lease cleanup| dynamic_engine
+    storage -->|backend abstraction| database
+    observability -->|gauge sync| database

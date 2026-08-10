@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from sqlalchemy import (
     String, Text, Boolean, DateTime, ForeignKey,
-    Enum, JSON, Integer, Index, BigInteger, Table, Column, CheckConstraint,
+    Enum, JSON, Integer, Index, BigInteger, Table, Column, CheckConstraint, Float,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -781,3 +781,64 @@ class PolicyFileVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     policy_file: Mapped["PolicyFile"] = relationship(back_populates="versions")
     __table_args__ = (Index("ix_policy_file_versions_file_ver", "policy_file_id", "version_number", unique=True),)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v4.0 Models — Platform Experience & Engineering Excellence
+# ═══════════════════════════════════════════════════════════════════════════
+
+class BenchmarkStatus(str, PyEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class BenchmarkRun(Base):
+    """Stores the results of every benchmark execution for historical comparison."""
+    __tablename__ = "benchmark_runs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    benchmark_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # e.g. "crypto", "secrets", "transit", "pki", "auth", "full"
+    status: Mapped[BenchmarkStatus] = mapped_column(Enum(BenchmarkStatus), default=BenchmarkStatus.COMPLETED)
+    results: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # {"aes_encrypt_1000_ms": 12.3, "throughput_ops_per_sec": 81000, ...}
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DemoDataset(Base):
+    """Tracks demo data seeding sessions so they can be identified and reset."""
+    __tablename__ = "demo_datasets"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    label: Mapped[str] = mapped_column(String(128), nullable=False, default="enterprise-demo")
+    loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    records_created: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # {"orgs": 2, "namespaces": 6, "secrets": 40, "transit_keys": 5, ...}
+    loaded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AuditReplayEvent(Base):
+    """
+    Captures a snapshot of each audit event at replay time, enriched with
+    context (resolved names, payload summaries) so the replay engine can
+    reconstruct a full timeline without hitting the live DB on every seek.
+    """
+    __tablename__ = "audit_replay_events"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    audit_log_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audit_logs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # replay session identifier so multiple replays can coexist
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    resource: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    namespace: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payload_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    original_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    __table_args__ = (Index("ix_replay_events_session_seq", "session_id", "sequence"),)

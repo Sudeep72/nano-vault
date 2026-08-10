@@ -619,7 +619,304 @@ def vault_health(as_json):
     out(resp, as_json, "Vault Health")
 
 
-# ── Shell completion ──────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v4.0 — Platform Experience & Engineering Excellence
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Diagnostics / Environment Checker ─────────────────────────────────────────
+
+@cli.command("diagnose")
+@json_opt
+def diagnose(as_json):
+    """Full startup diagnostics: config, environment, dependencies, DB connectivity."""
+    client = NVClient()
+    resp = client.get("/api/v4/diagnostics/full", auth=False)
+    data = resp.get("data", {})
+    if not as_json:
+        overall = data.get("overall_healthy")
+        color = "green" if overall else "red"
+        console.print(f"[{color}]Overall healthy: {overall}[/{color}]\n")
+        console.print(f"Config checks passed: {data.get('config', {}).get('passed')}/{data.get('config', {}).get('total')}")
+        console.print(f"Python OK: {data.get('environment', {}).get('python_ok')}")
+        console.print(f"All required deps installed: {data.get('dependencies', {}).get('all_required_installed')}")
+        console.print(f"Database connected: {data.get('database', {}).get('connected')}")
+    out(resp, as_json)
+
+
+@cli.command("env-check")
+@json_opt
+def env_check(as_json):
+    """Check required and optional environment variables."""
+    client = NVClient()
+    resp = client.get("/api/v4/diagnostics/environment", auth=False)
+    out(resp, as_json, "Environment Check")
+
+
+@cli.command("health-summary")
+@json_opt
+def health_summary(as_json):
+    """One-shot health summary across every subsystem."""
+    client = NVClient()
+    resp = client.get("/api/v3/health/dependencies")
+    out(resp, as_json, "Health Summary")
+
+
+# ── Interactive Setup Wizard ───────────────────────────────────────────────────
+
+@cli.command("wizard")
+def wizard():
+    """Interactive first-run setup wizard: profile + login in one guided flow."""
+    console.print(Panel.fit("NanoVault Setup Wizard", style="bold cyan"))
+    name = click.prompt("Profile name", default="default")
+    address = click.prompt("Server address", default="http://localhost:8000")
+    set_profile(name, address)
+    use_profile(name)
+    console.print(f"[green]Profile '{name}' configured -> {address}[/green]")
+
+    if click.confirm("Log in now?", default=True):
+        username = click.prompt("Username")
+        password = click.prompt("Password", hide_input=True)
+        client = NVClient()
+        resp = client.post("/api/v1/auth/login", {"username": username, "password": password}, auth=False)
+        if resp.get("success"):
+            save_credentials(name, resp["data"]["access_token"], resp["data"]["refresh_token"])
+            console.print("[green]Login successful. You're ready to go — try `nvctl engine list`.[/green]")
+        else:
+            console.print(f"[red]Login failed: {resp.get('detail', resp)}[/red]")
+    else:
+        console.print("Run `nvctl auth login` whenever you're ready.")
+
+
+# ── Architecture Explorer ──────────────────────────────────────────────────────
+
+@cli.group()
+def explore():
+    """Architecture Explorer: service graph, dependencies, export."""
+    pass
+
+
+@explore.command("graph")
+@json_opt
+def explore_graph(as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/architecture/graph")
+    out(resp, as_json, "Architecture Graph")
+
+
+@explore.command("node")
+@click.argument("node_id")
+@json_opt
+def explore_node(node_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/architecture/nodes/{node_id}")
+    out(resp, as_json)
+
+
+@explore.command("export")
+@click.option("--format", "fmt", default="mermaid", type=click.Choice(["mermaid", "dot"]))
+@click.option("--output", "-o", type=click.Path())
+def explore_export(fmt, output):
+    client = NVClient()
+    resp = client.get(f"/api/v4/architecture/export/{fmt}")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Exported to {output}[/green]")
+    else:
+        console.print(content)
+
+
+# ── Replay Viewer ──────────────────────────────────────────────────────────────
+
+@cli.group()
+def replay():
+    """Secret Access Replay: create sessions, view timeline, seek, search."""
+    pass
+
+
+@replay.command("create")
+@click.option("--limit", default=100)
+@json_opt
+def replay_create(limit, as_json):
+    client = NVClient()
+    resp = client.post("/api/v4/replay/sessions", {"limit": limit})
+    out(resp, as_json, "Replay Session Created")
+
+
+@replay.command("timeline")
+@click.argument("session_id")
+@json_opt
+def replay_timeline(session_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/replay/sessions/{session_id}/timeline")
+    out(resp, as_json, "Replay Timeline")
+
+
+@replay.command("seek")
+@click.argument("session_id")
+@click.argument("sequence", type=int)
+@json_opt
+def replay_seek(session_id, sequence, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/replay/sessions/{session_id}/seek/{sequence}")
+    out(resp, as_json)
+
+
+# ── Dependency Graph ────────────────────────────────────────────────────────────
+
+@cli.command("depgraph")
+@json_opt
+def depgraph(as_json):
+    """Real resource dependency graph (orgs/namespaces/secrets/keys/certs)."""
+    client = NVClient()
+    resp = client.get("/api/v4/dependency-graph")
+    out(resp, as_json, "Dependency Graph")
+
+
+# ── Benchmark Runner ────────────────────────────────────────────────────────────
+
+@cli.group()
+def bench():
+    """Cryptography Performance Lab + Enterprise Benchmark Suite."""
+    pass
+
+
+@bench.command("crypto")
+@json_opt
+def bench_crypto(as_json):
+    """Run full crypto benchmark: AES-256-GCM, ChaCha20-Poly1305, RSA-4096, Ed25519, ECDSA."""
+    client = NVClient()
+    with console.status("[bold cyan]Running crypto benchmark suite..."):
+        resp = client.post("/api/v4/benchmarks/crypto/run")
+    out(resp, as_json, "Crypto Benchmark Results")
+
+
+@bench.command("subsystem")
+@json_opt
+def bench_subsystem(as_json):
+    """Run subsystem benchmark across auth/secrets/transit/pki/policies/leases/tokens."""
+    client = NVClient()
+    with console.status("[bold cyan]Running subsystem benchmark..."):
+        resp = client.post("/api/v4/benchmarks/subsystem/run")
+    out(resp, as_json, "Subsystem Benchmark Results")
+
+
+@bench.command("history")
+@click.option("--type", "benchmark_type", default=None)
+@json_opt
+def bench_history(benchmark_type, as_json):
+    client = NVClient()
+    params = {"benchmark_type": benchmark_type} if benchmark_type else {}
+    resp = client.get("/api/v4/benchmarks/history", params=params)
+    out(resp, as_json, "Benchmark History")
+
+
+@bench.command("compare")
+@click.argument("run_a")
+@click.argument("run_b")
+@json_opt
+def bench_compare(run_a, run_b, as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/benchmarks/compare", params={"run_a": run_a, "run_b": run_b})
+    out(resp, as_json, "Benchmark Comparison")
+
+
+# ── Threat Model Export ─────────────────────────────────────────────────────────
+
+@cli.command("threat-model")
+@click.option("--output", "-o", type=click.Path())
+@click.option("--format", "fmt", default="markdown", type=click.Choice(["markdown", "json"]))
+def threat_model_cmd(output, fmt):
+    """Export the full STRIDE threat model."""
+    client = NVClient()
+    if fmt == "markdown":
+        resp = client.get("/api/v4/threat-model/export/markdown")
+        content = resp.get("raw", "")
+    else:
+        resp = client.get("/api/v4/threat-model/threats")
+        content = json_lib.dumps(resp.get("data", []), indent=2)
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Threat model exported to {output}[/green]")
+    else:
+        console.print(content)
+
+
+# ── Enterprise Demo Mode ─────────────────────────────────────────────────────────
+
+@cli.group()
+def demo():
+    """Enterprise Demo Mode: load realistic demo data."""
+    pass
+
+
+@demo.command("load")
+@json_opt
+def demo_load(as_json):
+    """Populate the platform with realistic enterprise demo data."""
+    client = NVClient()
+    with console.status("[bold cyan]Loading enterprise demo dataset..."):
+        resp = client.post("/api/v4/demo/load")
+    out(resp, as_json, "Demo Dataset Loaded")
+
+
+@demo.command("history")
+@json_opt
+def demo_history(as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/demo/history")
+    out(resp, as_json, "Demo Load History")
+
+
+# ── Documentation Generator ─────────────────────────────────────────────────────
+
+@cli.group()
+def docgen():
+    """Documentation Generator: architecture/ER/deployment/sequence diagrams."""
+    pass
+
+
+@docgen.command("architecture")
+@click.option("--output", "-o", type=click.Path())
+def docgen_architecture(output):
+    client = NVClient()
+    resp = client.get("/api/v4/docs-generator/architecture")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+@docgen.command("er")
+@click.option("--output", "-o", type=click.Path())
+def docgen_er(output):
+    client = NVClient()
+    resp = client.get("/api/v4/docs-generator/er-diagram")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+@docgen.command("sequence")
+@click.argument("flow", type=click.Choice(["auth", "secret_lifecycle", "transit_encrypt", "pki_issue"]))
+@click.option("--output", "-o", type=click.Path())
+def docgen_sequence(flow, output):
+    client = NVClient()
+    resp = client.get(f"/api/v4/docs-generator/sequence/{flow}")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+
 
 @cli.command("completion")
 @click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
