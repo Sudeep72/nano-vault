@@ -31,6 +31,16 @@ RATE_LIMIT_PER_MINUTE=60
 AUTH_RATE_LIMIT_PER_MINUTE=10
 
 ALLOWED_ORIGINS=http://localhost:3000
+
+# AI Security Platform (v5) — disabled by default. Uncomment and set your
+# own GEMINI_API_KEY to enable. Never commit a real key to source control.
+# AI_ENABLED=true
+# AI_PROVIDER=gemini
+# AI_MODEL=gemini-2.0-flash
+# GEMINI_API_KEY=your-key-here
+# AI_REQUEST_TIMEOUT_SECONDS=20
+# AI_MAX_OUTPUT_TOKENS=2048
+# AI_TEMPERATURE=0.2
 """
 
 with open(".env", "w") as f:

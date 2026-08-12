@@ -916,6 +916,108 @@ def docgen_sequence(flow, output):
         console.print(content)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v5.0 — AI Security Platform
+# ═══════════════════════════════════════════════════════════════════════════
+
+@cli.group()
+def ai():
+    """AI Security Platform: status, analyze, investigate, search, findings, explain."""
+    pass
+
+
+@ai.command("status")
+@json_opt
+def ai_status_cmd(as_json):
+    """Show AI subsystem status — enabled, provider, model, configured."""
+    client = NVClient()
+    resp = client.get("/api/v5/ai/status")
+    if not as_json:
+        data = resp.get("data", {})
+        color = "green" if data.get("configured") else "yellow"
+        console.print(f"Enabled: {data.get('enabled')}")
+        console.print(f"[{color}]Configured: {data.get('configured')}[/{color}]")
+        if data.get("provider"):
+            console.print(f"Provider: {data.get('provider')} ({data.get('model')})")
+        console.print(f"Message: {data.get('message')}")
+    out(resp, as_json)
+
+
+@ai.command("health")
+@json_opt
+def ai_health_cmd(as_json):
+    """Check AI provider reachability (admin only)."""
+    client = NVClient()
+    resp = client.get("/api/v5/ai/health")
+    out(resp, as_json, "AI Health")
+
+
+@ai.command("explain")
+@click.argument("audit_log_id")
+@click.option("--question", default=None, help="Custom question instead of the default explanation prompt")
+@json_opt
+def ai_explain(audit_log_id, question, as_json):
+    """Explain a specific audit event: evidence, inference, confidence, recommended actions."""
+    client = NVClient()
+    body = {"audit_log_id": audit_log_id}
+    if question:
+        body["question"] = question
+    with console.status("[bold cyan]Analyzing event..."):
+        resp = client.post("/api/v5/ai/explain", body)
+    data = resp.get("data", {})
+    if not as_json and data.get("success"):
+        f = data["finding"]
+        console.print(Panel.fit(f["summary"], title=f"[{f['severity']}] Confidence: {f['confidence']}", style="bold cyan"))
+        console.print("[bold]Observed evidence:[/bold]")
+        for e in f["evidence"]:
+            console.print(f"  - {e}")
+        console.print("[bold]AI inference:[/bold]")
+        for i in f["explanation"]:
+            console.print(f"  - {i}")
+        console.print("[bold]Recommended actions:[/bold]")
+        for a in f["recommended_actions"]:
+            console.print(f"  - {a}")
+    elif not as_json:
+        console.print(f"[red]AI explanation unavailable: {data.get('error')} ({data.get('error_type')})[/red]")
+    out(resp, as_json)
+
+
+@ai.command("investigate")
+@click.argument("audit_log_id")
+@click.argument("question")
+@json_opt
+def ai_investigate(audit_log_id, question, as_json):
+    """Ask a free-form investigation question about a specific event."""
+    client = NVClient()
+    with console.status("[bold cyan]Investigating..."):
+        resp = client.post("/api/v5/ai/investigate", {"audit_log_id": audit_log_id, "question": question})
+    out(resp, as_json, "Investigation Result")
+
+
+@ai.command("search")
+@click.argument("query")
+@json_opt
+def ai_search_cmd(query, as_json):
+    """Natural-language security search across audit/architecture/policy/identity/health data."""
+    client = NVClient()
+    with console.status("[bold cyan]Searching..."):
+        resp = client.post("/api/v5/ai/search", {"query": query})
+    out(resp, as_json, "AI Search Result")
+
+
+@ai.command("findings")
+@click.option("--category", default=None)
+@click.option("--severity", default=None)
+@click.option("--status", default=None)
+@json_opt
+def ai_findings_cmd(category, severity, status, as_json):
+    """List AI security findings."""
+    client = NVClient()
+    params = {k: v for k, v in {"category": category, "severity": severity, "status": status}.items() if v}
+    resp = client.get("/api/v5/ai/findings", params=params)
+    out(resp, as_json, "AI Findings")
+
+
 
 
 @cli.command("completion")

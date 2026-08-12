@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "NanoVault"
-    APP_VERSION: str = "4.0.0"
+    APP_VERSION: str = "5.0.0"
     APP_ENV: str = "development"
     DEBUG: bool = False
     SECRET_KEY: str = ""
@@ -38,6 +38,19 @@ class Settings(BaseSettings):
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    # AI Security Platform (v5) — disabled unless explicitly enabled.
+    # Provider-agnostic naming (AI_*) even though Gemini is the first concrete
+    # implementation, so a future provider swap needs no config rename.
+    AI_ENABLED: bool = False
+    AI_PROVIDER: str = "gemini"
+    AI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_API_KEY: str = ""
+    AI_REQUEST_TIMEOUT_SECONDS: int = 20
+    AI_MAX_OUTPUT_TOKENS: int = 2048
+    AI_TEMPERATURE: float = 0.2
+    AI_MAX_CONTEXT_ITEMS: int = 50
+
 
     # Secret validation limits
     MAX_SECRET_SIZE_BYTES: int = 65536     # 64 KB

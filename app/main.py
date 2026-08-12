@@ -33,6 +33,9 @@ from app.api.v3.endpoints import transit, pki, seal, identity, policy_as_code, o
 # v4 routers — Platform Experience & Engineering Excellence
 from app.api.v4.endpoints import architecture, benchmarks, replay, threat_model, demo, dev_experience, playground
 
+# v5 routers — AI Security Platform
+from app.api.v5.endpoints import ai_status, ai_analysis, ai_search, ai_findings
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 
 limiter = Limiter(
@@ -104,7 +107,7 @@ app = FastAPI(
         "**Auth:** Login at `/api/v1/auth/login` → click **Authorize** → paste Bearer token.\n\n"
         "**Namespace:** Pass `X-Vault-Namespace: <path>` header to operate in a specific namespace."
     ),
-    version="4.0.0",
+    version="5.0.0",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -199,6 +202,13 @@ app.include_router(demo.router,            prefix=v4)
 app.include_router(dev_experience.router,  prefix=v4)
 app.include_router(playground.router,      prefix=v4)
 
+# ── v5 routes — AI Security Platform ─────────────────────────────────────────
+v5 = "/api/v5"
+app.include_router(ai_status.router,   prefix=v5)
+app.include_router(ai_analysis.router, prefix=v5)
+app.include_router(ai_search.router,   prefix=v5)
+app.include_router(ai_findings.router, prefix=v5)
+
 
 @app.get("/docs", include_in_schema=False)
 async def swagger_ui():
@@ -263,7 +273,7 @@ async def root():
 
 @app.get("/health", include_in_schema=False)
 async def health_check():
-    return JSONResponse({"status": "healthy", "version": "4.0.0", "service": "NanoVault Enterprise"})
+    return JSONResponse({"status": "healthy", "version": "5.0.0", "service": "NanoVault Enterprise"})
 
 
 @app.get("/routes", include_in_schema=False)

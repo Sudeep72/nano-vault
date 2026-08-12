@@ -132,6 +132,11 @@ class AuditAction(str, PyEnum):
     PROJECT_CREATE = "PROJECT_CREATE"
     TEAM_CREATE = "TEAM_CREATE"
     NAMESPACE_CREATE = "NAMESPACE_CREATE"
+    # v5 — AI Security Platform
+    AI_ANALYSIS_RUN = "AI_ANALYSIS_RUN"
+    AI_SEARCH_QUERY = "AI_SEARCH_QUERY"
+    AI_FINDING_CREATE = "AI_FINDING_CREATE"
+    AI_FINDING_STATUS_CHANGE = "AI_FINDING_STATUS_CHANGE"
 
 
 # ── M2M tables ────────────────────────────────────────────────────────────────
@@ -842,3 +847,55 @@ class AuditReplayEvent(Base):
     original_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     __table_args__ = (Index("ix_replay_events_session_seq", "session_id", "sequence"),)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v5.0 Models — AI Security Platform
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AIFindingSeverity(str, PyEnum):
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AIFindingConfidence(str, PyEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class AIFindingStatus(str, PyEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    DISMISSED = "dismissed"
+    RESOLVED = "resolved"
+
+
+class AIFinding(Base):
+    """
+    A structured, auditable output of the AI Security Engine. Deliberately
+    does NOT store the raw prompt or the raw model response text — only
+    the validated, schema-checked structured fields (Step 9 + Step 12).
+    """
+    __tablename__ = "ai_findings"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # "event_explanation", "nl_search", "investigation", "general"
+    severity: Mapped[AIFindingSeverity] = mapped_column(Enum(AIFindingSeverity), nullable=False, index=True)
+    confidence: Mapped[AIFindingConfidence] = mapped_column(Enum(AIFindingConfidence), nullable=False)
+    status: Mapped[AIFindingStatus] = mapped_column(Enum(AIFindingStatus), default=AIFindingStatus.OPEN, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)          # observed evidence, list[str]
+    explanation: Mapped[list] = mapped_column(JSON, nullable=False, default=list)        # AI inference, list[str]
+    recommended_actions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    related_entities: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    ai_provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    ai_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

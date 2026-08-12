@@ -42,7 +42,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
-      APP_VERSION: "3.0.0"
+      APP_VERSION: "5.0.0"
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      AI_MODEL: ${AI_MODEL:-gemini-3.1-flash-lite}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
