@@ -1,0 +1,1149 @@
+#!/usr/bin/env python3
+"""
+nvctl — NanoVault Enterprise CLI
+Cross-platform (Linux/macOS/Windows) operational interface for NanoVault v3.0.
+"""
+import base64
+import json as json_lib
+import sys
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+
+from .client import NVClient
+from .config import load_config, save_config, set_profile, use_profile, save_credentials, clear_credentials
+
+console = Console()
+
+
+def out(data, as_json=False, title=None):
+    if as_json:
+        click.echo(json_lib.dumps(data, indent=2))
+        return
+    if title:
+        console.print(Panel.fit(title, style="bold cyan"))
+    if isinstance(data, dict) and "data" in data:
+        payload = data["data"]
+    else:
+        payload = data
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        table = Table(show_header=True, header_style="bold magenta")
+        for key in payload[0].keys():
+            table.add_column(key)
+        for row in payload:
+            table.add_row(*[str(v) for v in row.values()])
+        console.print(table)
+    else:
+        console.print_json(data=payload if isinstance(payload, (dict, list)) else {"result": payload})
+
+
+json_opt = click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+
+
+@click.group()
+@click.version_option(version="3.0.0", prog_name="nvctl")
+def cli():
+    """nvctl — NanoVault Enterprise CLI. The primary operational interface for NanoVault v3.0."""
+    pass
+
+
+# ── Config / Profiles ─────────────────────────────────────────────────────────
+
+@cli.group()
+def profile():
+    """Manage configuration profiles."""
+    pass
+
+
+@profile.command("create")
+@click.argument("name")
+@click.option("--address", default="http://localhost:8000", help="NanoVault server address")
+def profile_create(name, address):
+    set_profile(name, address)
+    console.print(f"[green]Profile '{name}' created -> {address}[/green]")
+
+
+@profile.command("use")
+@click.argument("name")
+def profile_use(name):
+    use_profile(name)
+    console.print(f"[green]Active profile: {name}[/green]")
+
+
+@profile.command("list")
+def profile_list():
+    config = load_config()
+    for name, p in config["profiles"].items():
+        marker = " (active)" if name == config["active_profile"] else ""
+        console.print(f"{name}{marker}: {p['address']}")
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def auth():
+    """Authentication: login, logout, profile."""
+    pass
+
+
+@auth.command("login")
+@click.option("--username", prompt=True)
+@click.option("--password", prompt=True, hide_input=True)
+@json_opt
+def auth_login(username, password, as_json):
+    client = NVClient()
+    resp = client.post("/api/v1/auth/login", {"username": username, "password": password}, auth=False)
+    if resp.get("success"):
+        token = resp["data"]["access_token"]
+        refresh = resp["data"]["refresh_token"]
+        save_credentials(client.profile_name, token, refresh)
+        console.print("[green]Login successful. Token cached.[/green]")
+    else:
+        console.print(f"[red]Login failed: {resp.get('detail', resp)}[/red]")
+    out(resp, as_json)
+
+
+@auth.command("logout")
+def auth_logout():
+    client = NVClient()
+    clear_credentials(client.profile_name)
+    console.print("[green]Logged out. Local credential cache cleared.[/green]")
+
+
+@auth.command("whoami")
+@json_opt
+def auth_whoami(as_json):
+    client = NVClient()
+    resp = client.get("/api/v1/auth/me")
+    out(resp, as_json, "Current User")
+
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+
+@cli.group()
+def secret():
+    """KV Secrets: create, read, update, delete, search, rotate, rollback."""
+    pass
+
+
+@secret.command("create")
+@click.argument("key")
+@click.argument("value")
+@click.option("--category")
+@click.option("--tags", multiple=True)
+@json_opt
+def secret_create(key, value, category, tags, as_json):
+    client = NVClient()
+    body = {"key": key, "value": value}
+    if category: body["category"] = category
+    if tags: body["tags"] = list(tags)
+    resp = client.post("/api/v1/secrets", body)
+    out(resp, as_json, f"Secret Created: {key}")
+
+
+@secret.command("read")
+@click.argument("secret_id")
+@json_opt
+def secret_read(secret_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v1/secrets/{secret_id}")
+    out(resp, as_json)
+
+
+@secret.command("update")
+@click.argument("secret_id")
+@click.option("--value")
+@json_opt
+def secret_update(secret_id, value, as_json):
+    client = NVClient()
+    resp = client.patch(f"/api/v1/secrets/{secret_id}", {"value": value})
+    out(resp, as_json)
+
+
+@secret.command("delete")
+@click.argument("secret_id")
+def secret_delete(secret_id):
+    client = NVClient()
+    resp = client.delete(f"/api/v1/secrets/{secret_id}")
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@secret.command("search")
+@click.option("--query")
+@click.option("--category")
+@json_opt
+def secret_search(query, category, as_json):
+    client = NVClient()
+    body = {}
+    if query: body["query"] = query
+    if category: body["category"] = category
+    resp = client.post("/api/v1/secrets/search", body)
+    out(resp, as_json, "Search Results")
+
+
+@secret.command("rotate")
+@click.argument("secret_id")
+@click.argument("new_value")
+def secret_rotate(secret_id, new_value):
+    client = NVClient()
+    resp = client.post(f"/api/v2/kv/{secret_id}/rotate", {"new_value": new_value})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@secret.command("rollback")
+@click.argument("secret_id")
+@click.argument("version", type=int)
+def secret_rollback(secret_id, version):
+    client = NVClient()
+    resp = client.post(f"/api/v2/kv/{secret_id}/rollback", {"version_number": version})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+# ── Transit ───────────────────────────────────────────────────────────────────
+
+@cli.group()
+def transit():
+    """Transit Engine: encrypt, decrypt, sign, verify, rotate."""
+    pass
+
+
+@transit.command("encrypt")
+@click.argument("key_name")
+@click.argument("plaintext")
+@json_opt
+def transit_encrypt(key_name, plaintext, as_json):
+    client = NVClient()
+    b64 = base64.b64encode(plaintext.encode()).decode()
+    resp = client.post(f"/api/v3/transit/encrypt/{key_name}", {"plaintext": b64})
+    out(resp, as_json)
+
+
+@transit.command("decrypt")
+@click.argument("key_name")
+@click.argument("ciphertext")
+@json_opt
+def transit_decrypt(key_name, ciphertext, as_json):
+    client = NVClient()
+    resp = client.post(f"/api/v3/transit/decrypt/{key_name}", {"ciphertext": ciphertext})
+    if resp.get("success"):
+        pt = base64.b64decode(resp["data"]["plaintext"]).decode()
+        console.print(f"[green]Plaintext: {pt}[/green]")
+    out(resp, as_json)
+
+
+@transit.command("sign")
+@click.argument("key_name")
+@click.argument("data")
+@json_opt
+def transit_sign(key_name, data, as_json):
+    client = NVClient()
+    b64 = base64.b64encode(data.encode()).decode()
+    resp = client.post(f"/api/v3/transit/sign/{key_name}", {"input": b64})
+    out(resp, as_json)
+
+
+@transit.command("verify")
+@click.argument("key_name")
+@click.argument("data")
+@click.argument("signature")
+@json_opt
+def transit_verify(key_name, data, signature, as_json):
+    client = NVClient()
+    b64 = base64.b64encode(data.encode()).decode()
+    resp = client.post(f"/api/v3/transit/verify/{key_name}", {"input": b64, "signature": signature})
+    out(resp, as_json)
+
+
+@transit.command("rotate")
+@click.argument("key_name")
+def transit_rotate(key_name):
+    client = NVClient()
+    resp = client.post(f"/api/v3/transit/keys/{key_name}/rotate")
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+# ── PKI ───────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def pki():
+    """PKI Engine: issue, renew, revoke certificates."""
+    pass
+
+
+@pki.command("issue")
+@click.argument("ca_id")
+@click.argument("common_name")
+@click.option("--type", "cert_type", default="server")
+@click.option("--ttl-days", default=365)
+@json_opt
+def pki_issue(ca_id, common_name, cert_type, ttl_days, as_json):
+    client = NVClient()
+    resp = client.post("/api/v3/pki/issue", {"ca_id": ca_id, "common_name": common_name, "cert_type": cert_type, "ttl_days": ttl_days})
+    out(resp, as_json)
+
+
+@pki.command("revoke")
+@click.argument("cert_id")
+@click.option("--reason", default="unspecified")
+def pki_revoke(cert_id, reason):
+    client = NVClient()
+    resp = client.post(f"/api/v3/pki/certificates/{cert_id}/revoke", {"reason": reason})
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@pki.command("renew")
+@click.argument("cert_id")
+@click.option("--ttl-days", default=365)
+@json_opt
+def pki_renew(cert_id, ttl_days, as_json):
+    client = NVClient()
+    resp = client.post(f"/api/v3/pki/certificates/{cert_id}/renew", {"ttl_days": ttl_days})
+    out(resp, as_json)
+
+
+# ── Namespaces ────────────────────────────────────────────────────────────────
+
+@cli.group()
+def namespace():
+    """Namespace management: create, switch, delete."""
+    pass
+
+
+@namespace.command("create")
+@click.argument("org_id")
+@click.argument("name")
+@click.argument("path")
+def namespace_create(org_id, name, path):
+    client = NVClient()
+    resp = client.post("/api/v2/namespaces", {"org_id": org_id, "name": name, "path": path})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@namespace.command("switch")
+@click.argument("path")
+def namespace_switch(path):
+    client = NVClient()
+    resp = client.post("/api/v2/namespaces/switch", {"path": path})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@namespace.command("delete")
+@click.argument("ns_id")
+def namespace_delete(ns_id):
+    client = NVClient()
+    resp = client.delete(f"/api/v2/namespaces/{ns_id}")
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+# ── Policies ──────────────────────────────────────────────────────────────────
+
+@cli.group()
+def policy():
+    """Policy as Code: create, validate, simulate, import, export."""
+    pass
+
+
+@policy.command("import")
+@click.argument("name")
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--format", "fmt", default="yaml", type=click.Choice(["yaml", "json", "hcl"]))
+@click.option("--apply", is_flag=True)
+def policy_import(name, file, fmt, apply):
+    client = NVClient()
+    content = open(file).read()
+    resp = client.post("/api/v3/policy-as-code/upload", {"name": name, "content": content, "format": fmt, "apply": apply})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@policy.command("export")
+@click.argument("name")
+@click.option("--output", "-o", type=click.Path())
+def policy_export(name, output):
+    client = NVClient()
+    resp = client.get(f"/api/v3/policy-as-code/{name}/versions")
+    content = json_lib.dumps(resp.get("data", []), indent=2)
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Exported to {output}[/green]")
+    else:
+        console.print(content)
+
+
+@policy.command("validate")
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--format", "fmt", default="yaml", type=click.Choice(["yaml", "json", "hcl"]))
+def policy_validate(file, fmt):
+    client = NVClient()
+    content = open(file).read()
+    resp = client.post("/api/v3/policy-as-code/validate", {"content": content, "format": fmt})
+    valid = resp.get("data", {}).get("valid")
+    color = "green" if valid else "red"
+    console.print(f"[{color}]Valid: {valid}[/{color}]")
+    if not valid:
+        for e in resp["data"].get("errors", []):
+            console.print(f"  - {e}")
+
+
+@policy.command("simulate")
+@click.argument("policy_name")
+@click.argument("secret_key")
+@click.argument("action")
+def policy_simulate(policy_name, secret_key, action):
+    client = NVClient()
+    resp = client.post("/api/v3/policy-as-code/simulate", {"policy_name": policy_name, "secret_key": secret_key, "action": action})
+    allowed = resp.get("data", {}).get("allowed")
+    color = "green" if allowed else "red"
+    console.print(f"[{color}]Allowed: {allowed}[/{color}]")
+
+
+# ── Tokens ────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def token():
+    """Vault Token Engine: create, renew, revoke, lookup."""
+    pass
+
+
+@token.command("create")
+@click.option("--ttl", default=3600)
+@click.option("--type", "token_type", default="service")
+@json_opt
+def token_create(ttl, token_type, as_json):
+    client = NVClient()
+    resp = client.post("/api/v2/tokens/create", {"ttl_seconds": ttl, "token_type": token_type})
+    out(resp, as_json)
+
+
+@token.command("renew")
+@click.argument("raw_token")
+def token_renew(raw_token):
+    client = NVClient()
+    resp = client.post("/api/v2/tokens/renew", {"token": raw_token})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@token.command("revoke")
+@click.argument("raw_token")
+def token_revoke(raw_token):
+    client = NVClient()
+    resp = client.post("/api/v2/tokens/revoke", {"token": raw_token})
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@token.command("lookup")
+@click.argument("raw_token")
+@json_opt
+def token_lookup(raw_token, as_json):
+    client = NVClient()
+    resp = client.post("/api/v2/tokens/lookup", {"token": raw_token})
+    out(resp, as_json)
+
+
+# ── Leases ────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def lease():
+    """Lease Engine: lookup, renew, revoke."""
+    pass
+
+
+@lease.command("lookup")
+@click.argument("lease_id")
+@json_opt
+def lease_lookup(lease_id, as_json):
+    client = NVClient()
+    resp = client.post("/api/v2/dynamic/leases/lookup", {"lease_id": lease_id})
+    out(resp, as_json)
+
+
+@lease.command("renew")
+@click.argument("lease_id")
+@click.option("--increment", default=3600)
+def lease_renew(lease_id, increment):
+    client = NVClient()
+    resp = client.post("/api/v2/dynamic/leases/renew", {"lease_id": lease_id, "increment_seconds": increment})
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@lease.command("revoke")
+@click.argument("lease_id")
+def lease_revoke(lease_id):
+    client = NVClient()
+    resp = client.post("/api/v2/dynamic/leases/revoke", {"lease_id": lease_id})
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+# ── Engines ───────────────────────────────────────────────────────────────────
+
+@cli.group()
+def engine():
+    """Engine management: list, enable, disable, mount, unmount, reload."""
+    pass
+
+
+@engine.command("list")
+@json_opt
+def engine_list(as_json):
+    client = NVClient()
+    resp = client.get("/api/v2/engines")
+    out(resp, as_json, "Registered Engines")
+
+
+@engine.command("enable")
+@click.argument("name")
+def engine_enable(name):
+    client = NVClient()
+    resp = client.post(f"/api/v2/engines/{name}/enable")
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@engine.command("disable")
+@click.argument("name")
+def engine_disable(name):
+    client = NVClient()
+    resp = client.post(f"/api/v2/engines/{name}/disable")
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@engine.command("mount")
+@click.argument("name")
+@click.option("--path")
+def engine_mount(name, path):
+    client = NVClient()
+    body = {"mount_path": path} if path else {}
+    resp = client.post(f"/api/v2/engines/{name}/mount", body)
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@engine.command("unmount")
+@click.argument("name")
+def engine_unmount(name):
+    client = NVClient()
+    resp = client.post(f"/api/v2/engines/{name}/unmount")
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@engine.command("reload")
+@click.argument("name")
+def engine_reload(name):
+    client = NVClient()
+    resp = client.post(f"/api/v2/engines/{name}/reload")
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+# ── Storage / Backup ──────────────────────────────────────────────────────────
+
+@cli.group()
+def storage():
+    """Storage: backup, restore."""
+    pass
+
+
+@storage.command("backup")
+@click.option("--type", "backup_type", default="full")
+@json_opt
+def storage_backup(backup_type, as_json):
+    client = NVClient()
+    resp = client.post("/api/v3/backup", {"backup_type": backup_type})
+    out(resp, as_json, "Backup Created")
+
+
+@storage.command("restore")
+@click.argument("backup_id")
+def storage_restore(backup_id):
+    client = NVClient()
+    resp = client.post(f"/api/v3/backup/{backup_id}/restore")
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@storage.command("list-backups")
+@json_opt
+def storage_list_backups(as_json):
+    client = NVClient()
+    resp = client.get("/api/v3/backup")
+    out(resp, as_json, "Backups")
+
+
+# ── Vault Management ──────────────────────────────────────────────────────────
+
+@cli.group()
+def vault():
+    """Vault management: seal, unseal, status, health."""
+    pass
+
+@vault.command("init")
+@click.option("--shares", default=5, show_default=True)
+@click.option("--threshold", default=3, show_default=True)
+@json_opt
+def vault_init(shares, threshold, as_json):
+    """Initialize vault with Shamir key shares."""
+    client = NVClient()
+    resp = client.post(
+        "/api/v3/seal/initialize",
+        {
+            "total_shares": shares,
+            "threshold": threshold,
+        },
+    )
+    out(resp, as_json, "Vault Initialized")
+
+@vault.command("status")
+@json_opt
+def vault_status(as_json):
+    client = NVClient()
+    resp = client.get("/api/v3/seal/status", auth=False)
+    out(resp, as_json, "Vault Seal Status")
+
+
+@vault.command("seal")
+def vault_seal():
+    client = NVClient()
+    resp = client.post("/api/v3/seal/seal")
+    console.print(f"[yellow]{resp.get('message', resp)}[/yellow]")
+
+
+@vault.command("unseal")
+@click.argument("share")
+def vault_unseal(share):
+    client = NVClient()
+    resp = client.post("/api/v3/seal/unseal", {"share": share}, auth=False)
+    console.print(f"[green]{resp.get('message', resp)}[/green]")
+
+
+@vault.command("health")
+@json_opt
+def vault_health(as_json):
+    client = NVClient()
+    resp = client.get("/health", auth=False)
+    out(resp, as_json, "Vault Health")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v4.0 — Platform Experience & Engineering Excellence
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Diagnostics / Environment Checker ─────────────────────────────────────────
+
+@cli.command("diagnose")
+@json_opt
+def diagnose(as_json):
+    """Full startup diagnostics: config, environment, dependencies, DB connectivity."""
+    client = NVClient()
+    resp = client.get("/api/v4/diagnostics/full", auth=False)
+    data = resp.get("data", {})
+    if not as_json:
+        overall = data.get("overall_healthy")
+        color = "green" if overall else "red"
+        console.print(f"[{color}]Overall healthy: {overall}[/{color}]\n")
+        console.print(f"Config checks passed: {data.get('config', {}).get('passed')}/{data.get('config', {}).get('total')}")
+        console.print(f"Python OK: {data.get('environment', {}).get('python_ok')}")
+        console.print(f"All required deps installed: {data.get('dependencies', {}).get('all_required_installed')}")
+        console.print(f"Database connected: {data.get('database', {}).get('connected')}")
+    out(resp, as_json)
+
+
+@cli.command("env-check")
+@json_opt
+def env_check(as_json):
+    """Check required and optional environment variables."""
+    client = NVClient()
+    resp = client.get("/api/v4/diagnostics/environment", auth=False)
+    out(resp, as_json, "Environment Check")
+
+
+@cli.command("health-summary")
+@json_opt
+def health_summary(as_json):
+    """One-shot health summary across every subsystem."""
+    client = NVClient()
+    resp = client.get("/api/v3/health/dependencies")
+    out(resp, as_json, "Health Summary")
+
+
+# ── Interactive Setup Wizard ───────────────────────────────────────────────────
+
+@cli.command("wizard")
+def wizard():
+    """Interactive first-run setup wizard: profile + login in one guided flow."""
+    console.print(Panel.fit("NanoVault Setup Wizard", style="bold cyan"))
+    name = click.prompt("Profile name", default="default")
+    address = click.prompt("Server address", default="http://localhost:8000")
+    set_profile(name, address)
+    use_profile(name)
+    console.print(f"[green]Profile '{name}' configured -> {address}[/green]")
+
+    if click.confirm("Log in now?", default=True):
+        username = click.prompt("Username")
+        password = click.prompt("Password", hide_input=True)
+        client = NVClient()
+        resp = client.post("/api/v1/auth/login", {"username": username, "password": password}, auth=False)
+        if resp.get("success"):
+            save_credentials(name, resp["data"]["access_token"], resp["data"]["refresh_token"])
+            console.print("[green]Login successful. You're ready to go — try `nvctl engine list`.[/green]")
+        else:
+            console.print(f"[red]Login failed: {resp.get('detail', resp)}[/red]")
+    else:
+        console.print("Run `nvctl auth login` whenever you're ready.")
+
+
+# ── Architecture Explorer ──────────────────────────────────────────────────────
+
+@cli.group()
+def explore():
+    """Architecture Explorer: service graph, dependencies, export."""
+    pass
+
+
+@explore.command("graph")
+@json_opt
+def explore_graph(as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/architecture/graph")
+    out(resp, as_json, "Architecture Graph")
+
+
+@explore.command("node")
+@click.argument("node_id")
+@json_opt
+def explore_node(node_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/architecture/nodes/{node_id}")
+    out(resp, as_json)
+
+
+@explore.command("export")
+@click.option("--format", "fmt", default="mermaid", type=click.Choice(["mermaid", "dot"]))
+@click.option("--output", "-o", type=click.Path())
+def explore_export(fmt, output):
+    client = NVClient()
+    resp = client.get(f"/api/v4/architecture/export/{fmt}")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Exported to {output}[/green]")
+    else:
+        console.print(content)
+
+
+# ── Replay Viewer ──────────────────────────────────────────────────────────────
+
+@cli.group()
+def replay():
+    """Secret Access Replay: create sessions, view timeline, seek, search."""
+    pass
+
+
+@replay.command("create")
+@click.option("--limit", default=100)
+@json_opt
+def replay_create(limit, as_json):
+    client = NVClient()
+    resp = client.post("/api/v4/replay/sessions", {"limit": limit})
+    out(resp, as_json, "Replay Session Created")
+
+
+@replay.command("timeline")
+@click.argument("session_id")
+@json_opt
+def replay_timeline(session_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/replay/sessions/{session_id}/timeline")
+    out(resp, as_json, "Replay Timeline")
+
+
+@replay.command("seek")
+@click.argument("session_id")
+@click.argument("sequence", type=int)
+@json_opt
+def replay_seek(session_id, sequence, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v4/replay/sessions/{session_id}/seek/{sequence}")
+    out(resp, as_json)
+
+
+# ── Dependency Graph ────────────────────────────────────────────────────────────
+
+@cli.command("depgraph")
+@json_opt
+def depgraph(as_json):
+    """Real resource dependency graph (orgs/namespaces/secrets/keys/certs)."""
+    client = NVClient()
+    resp = client.get("/api/v4/dependency-graph")
+    out(resp, as_json, "Dependency Graph")
+
+
+# ── Benchmark Runner ────────────────────────────────────────────────────────────
+
+@cli.group()
+def bench():
+    """Cryptography Performance Lab + Enterprise Benchmark Suite."""
+    pass
+
+
+@bench.command("crypto")
+@json_opt
+def bench_crypto(as_json):
+    """Run full crypto benchmark: AES-256-GCM, ChaCha20-Poly1305, RSA-4096, Ed25519, ECDSA."""
+    client = NVClient()
+    with console.status("[bold cyan]Running crypto benchmark suite..."):
+        resp = client.post("/api/v4/benchmarks/crypto/run")
+    out(resp, as_json, "Crypto Benchmark Results")
+
+
+@bench.command("subsystem")
+@json_opt
+def bench_subsystem(as_json):
+    """Run subsystem benchmark across auth/secrets/transit/pki/policies/leases/tokens."""
+    client = NVClient()
+    with console.status("[bold cyan]Running subsystem benchmark..."):
+        resp = client.post("/api/v4/benchmarks/subsystem/run")
+    out(resp, as_json, "Subsystem Benchmark Results")
+
+
+@bench.command("history")
+@click.option("--type", "benchmark_type", default=None)
+@json_opt
+def bench_history(benchmark_type, as_json):
+    client = NVClient()
+    params = {"benchmark_type": benchmark_type} if benchmark_type else {}
+    resp = client.get("/api/v4/benchmarks/history", params=params)
+    out(resp, as_json, "Benchmark History")
+
+
+@bench.command("compare")
+@click.argument("run_a")
+@click.argument("run_b")
+@json_opt
+def bench_compare(run_a, run_b, as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/benchmarks/compare", params={"run_a": run_a, "run_b": run_b})
+    out(resp, as_json, "Benchmark Comparison")
+
+
+# ── Threat Model Export ─────────────────────────────────────────────────────────
+
+@cli.command("threat-model")
+@click.option("--output", "-o", type=click.Path())
+@click.option("--format", "fmt", default="markdown", type=click.Choice(["markdown", "json"]))
+def threat_model_cmd(output, fmt):
+    """Export the full STRIDE threat model."""
+    client = NVClient()
+    if fmt == "markdown":
+        resp = client.get("/api/v4/threat-model/export/markdown")
+        content = resp.get("raw", "")
+    else:
+        resp = client.get("/api/v4/threat-model/threats")
+        content = json_lib.dumps(resp.get("data", []), indent=2)
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Threat model exported to {output}[/green]")
+    else:
+        console.print(content)
+
+
+# ── Enterprise Demo Mode ─────────────────────────────────────────────────────────
+
+@cli.group()
+def demo():
+    """Enterprise Demo Mode: load realistic demo data."""
+    pass
+
+
+@demo.command("load")
+@json_opt
+def demo_load(as_json):
+    """Populate the platform with realistic enterprise demo data."""
+    client = NVClient()
+    with console.status("[bold cyan]Loading enterprise demo dataset..."):
+        resp = client.post("/api/v4/demo/load")
+    out(resp, as_json, "Demo Dataset Loaded")
+
+
+@demo.command("history")
+@json_opt
+def demo_history(as_json):
+    client = NVClient()
+    resp = client.get("/api/v4/demo/history")
+    out(resp, as_json, "Demo Load History")
+
+
+# ── Documentation Generator ─────────────────────────────────────────────────────
+
+@cli.group()
+def docgen():
+    """Documentation Generator: architecture/ER/deployment/sequence diagrams."""
+    pass
+
+
+@docgen.command("architecture")
+@click.option("--output", "-o", type=click.Path())
+def docgen_architecture(output):
+    client = NVClient()
+    resp = client.get("/api/v4/docs-generator/architecture")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+@docgen.command("er")
+@click.option("--output", "-o", type=click.Path())
+def docgen_er(output):
+    client = NVClient()
+    resp = client.get("/api/v4/docs-generator/er-diagram")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+@docgen.command("sequence")
+@click.argument("flow", type=click.Choice(["auth", "secret_lifecycle", "transit_encrypt", "pki_issue"]))
+@click.option("--output", "-o", type=click.Path())
+def docgen_sequence(flow, output):
+    client = NVClient()
+    resp = client.get(f"/api/v4/docs-generator/sequence/{flow}")
+    content = resp.get("raw", "")
+    if output:
+        open(output, "w").write(content)
+        console.print(f"[green]Saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NanoVault v5.0 — AI Security Platform
+# ═══════════════════════════════════════════════════════════════════════════
+
+@cli.group()
+def ai():
+    """AI Security Platform: status, analyze, investigate, search, findings, explain."""
+    pass
+
+
+@ai.command("status")
+@json_opt
+def ai_status_cmd(as_json):
+    """Show AI subsystem status — enabled, provider, model, configured."""
+    client = NVClient()
+    resp = client.get("/api/v5/ai/status")
+    if not as_json:
+        data = resp.get("data", {})
+        color = "green" if data.get("configured") else "yellow"
+        console.print(f"Enabled: {data.get('enabled')}")
+        console.print(f"[{color}]Configured: {data.get('configured')}[/{color}]")
+        if data.get("provider"):
+            console.print(f"Provider: {data.get('provider')} ({data.get('model')})")
+        console.print(f"Message: {data.get('message')}")
+    out(resp, as_json)
+
+
+@ai.command("health")
+@json_opt
+def ai_health_cmd(as_json):
+    """Check AI provider reachability (admin only)."""
+    client = NVClient()
+    resp = client.get("/api/v5/ai/health")
+    out(resp, as_json, "AI Health")
+
+
+@ai.command("explain")
+@click.argument("audit_log_id")
+@click.option("--question", default=None, help="Custom question instead of the default explanation prompt")
+@json_opt
+def ai_explain(audit_log_id, question, as_json):
+    """Explain a specific audit event: evidence, inference, confidence, recommended actions."""
+    client = NVClient()
+    body = {"audit_log_id": audit_log_id}
+    if question:
+        body["question"] = question
+    with console.status("[bold cyan]Analyzing event..."):
+        resp = client.post("/api/v5/ai/explain", body)
+    data = resp.get("data", {})
+    if not as_json and data.get("success"):
+        f = data["finding"]
+        console.print(Panel.fit(f["summary"], title=f"[{f['severity']}] Confidence: {f['confidence']}", style="bold cyan"))
+        console.print("[bold]Observed evidence:[/bold]")
+        for e in f["evidence"]:
+            console.print(f"  - {e}")
+        console.print("[bold]AI inference:[/bold]")
+        for i in f["explanation"]:
+            console.print(f"  - {i}")
+        console.print("[bold]Recommended actions:[/bold]")
+        for a in f["recommended_actions"]:
+            console.print(f"  - {a}")
+    elif not as_json:
+        console.print(f"[red]AI explanation unavailable: {data.get('error')} ({data.get('error_type')})[/red]")
+    out(resp, as_json)
+
+
+@ai.command("investigate")
+@click.argument("audit_log_id")
+@click.argument("question")
+@json_opt
+def ai_investigate(audit_log_id, question, as_json):
+    """Ask a free-form investigation question about a specific event."""
+    client = NVClient()
+    with console.status("[bold cyan]Investigating..."):
+        resp = client.post("/api/v5/ai/investigate", {"audit_log_id": audit_log_id, "question": question})
+    out(resp, as_json, "Investigation Result")
+
+
+@ai.command("search")
+@click.argument("query")
+@json_opt
+def ai_search_cmd(query, as_json):
+    """Natural-language security search across audit/architecture/policy/identity/health data."""
+    client = NVClient()
+    with console.status("[bold cyan]Searching..."):
+        resp = client.post("/api/v5/ai/search", {"query": query})
+    out(resp, as_json, "AI Search Result")
+
+
+@ai.command("findings")
+@click.option("--category", default=None)
+@click.option("--severity", default=None)
+@click.option("--status", default=None)
+@json_opt
+def ai_findings_cmd(category, severity, status, as_json):
+    """List AI security findings."""
+    client = NVClient()
+    params = {k: v for k, v in {"category": category, "severity": severity, "status": status}.items() if v}
+    resp = client.get("/api/v5/ai/findings", params=params)
+    out(resp, as_json, "AI Findings")
+
+
+
+
+@cli.group()
+def security():
+    """Security Risk Engine, Correlation, and Investigation Workflow (v6)."""
+    pass
+
+
+@security.command("status")
+@json_opt
+def security_status(as_json):
+    client = NVClient()
+    rules = client.get("/api/v6/security/risk/rules")
+    chains = client.get("/api/v6/security/correlation/rules")
+    if not as_json:
+        console.print(f"[bold]Risk rules:[/bold] {len(rules.get('data', []))}")
+        console.print(f"[bold]Correlation chains:[/bold] {len(chains.get('data', []))}")
+    out({"risk_rules": rules.get("data"), "correlation_chains": chains.get("data")}, as_json, "Security Status")
+
+
+@security.command("risk")
+@click.argument("user_id")
+@click.option("--window-hours", default=24)
+@click.option("--record", is_flag=True)
+@json_opt
+def security_risk(user_id, window_hours, record, as_json):
+    client = NVClient()
+    if record:
+        resp = client.post(f"/api/v6/security/risk/users/{user_id}/assess", params={"window_hours": window_hours})
+    else:
+        resp = client.get(f"/api/v6/security/risk/users/{user_id}", params={"window_hours": window_hours})
+    out(resp, as_json, "Risk Assessment")
+
+
+@security.command("correlate")
+@click.argument("user_id")
+@click.option("--window-hours", default=24)
+@click.option("--record", is_flag=True)
+@json_opt
+def security_correlate(user_id, window_hours, record, as_json):
+    client = NVClient()
+    if record:
+        resp = client.post(f"/api/v6/security/correlation/users/{user_id}/assess", params={"window_hours": window_hours})
+    else:
+        resp = client.get(f"/api/v6/security/correlation/users/{user_id}", params={"window_hours": window_hours})
+    out(resp, as_json, "Correlation Analysis")
+
+
+@security.command("findings")
+@click.option("--category", default=None)
+@click.option("--status", default=None)
+@json_opt
+def security_findings(category, status, as_json):
+    client = NVClient()
+    params = {k: v for k, v in {"category": category, "status": status}.items() if v}
+    resp = client.get("/api/v6/security/findings", params=params)
+    out(resp, as_json, "Findings")
+
+
+@security.command("finding")
+@click.argument("finding_id")
+@json_opt
+def security_finding(finding_id, as_json):
+    client = NVClient()
+    resp = client.get(f"/api/v6/security/findings/{finding_id}")
+    out(resp, as_json, "Finding")
+
+
+@security.command("explain")
+@click.argument("finding_id")
+@click.option("--question", default=None)
+@json_opt
+def security_explain(finding_id, question, as_json):
+    client = NVClient()
+    body = {"question": question} if question else {}
+    resp = client.post(f"/api/v6/security/findings/{finding_id}/explain", body)
+    out(resp, as_json, "AI Explanation")
+
+
+@security.command("investigate")
+@click.argument("finding_id")
+@json_opt
+def security_investigate(finding_id, as_json):
+    client = NVClient()
+    resp = client.post(f"/api/v6/security/findings/{finding_id}/investigate")
+    out(resp, as_json, "Investigation Started")
+
+
+@security.command("acknowledge")
+@click.argument("finding_id")
+@json_opt
+def security_acknowledge(finding_id, as_json):
+    client = NVClient()
+    resp = client.post(f"/api/v6/security/findings/{finding_id}/acknowledge")
+    out(resp, as_json, "Finding Acknowledged")
+
+
+@security.command("resolve")
+@click.argument("finding_id")
+@click.option("--note", default=None)
+@json_opt
+def security_resolve(finding_id, note, as_json):
+    client = NVClient()
+    body = {"resolution_note": note} if note else {}
+    resp = client.post(f"/api/v6/security/findings/{finding_id}/resolve", body)
+    out(resp, as_json, "Finding Resolved")
+
+
+@security.command("dismiss")
+@click.argument("finding_id")
+@click.option("--reason", default=None)
+@json_opt
+def security_dismiss(finding_id, reason, as_json):
+    client = NVClient()
+    body = {"reason": reason} if reason else {}
+    resp = client.post(f"/api/v6/security/findings/{finding_id}/dismiss", body)
+    out(resp, as_json, "Finding Dismissed")
+
+
+@cli.command("completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completion(shell):
+    """Print shell completion script. Usage: eval "$(nvctl completion bash)" """
+    click.echo(f"# Add to your shell profile:\n# eval \"$(_NVCTL_COMPLETE={shell}_source nvctl)\"")
+
+
+if __name__ == "__main__":
+    cli()
+
